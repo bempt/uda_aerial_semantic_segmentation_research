@@ -1,0 +1,8 @@
+I am using fr.sh to create a .yaml of the file structure of my repo to give context to Cursor Composer. However, it is very slow. I am looking for a much faster method of creating/updating the file structure.
+---
+I want to add a timer for how long it takes to complete
+---
+I don't want Cursor Composer to overwrite the contents of the .txt files when a new composer is created, I want new prompts/information to be appended to the bottom
+---
+I want the .gitignore to avoid the datasets. The tiny sample datasets are ok.
+---

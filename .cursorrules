@@ -1,0 +1,19 @@
+instructions.txt:
+- Each time user asks you a query, append every user prompt that you receive to instructions.txt.
+- Each user prompt must be separated by a new line and --- between each prompt.
+- You have to do this each time regardless of the type of prompt.
+- Create the file if it doesn't exist. Do this along with other files you are creating or modifying.
+- Never overwrite existing content, only append new prompts to the end of the file.
+
+summary.txt:
+- Each time user asks you a query, append new bullet points to the running and evolving summary of the project in summary.txt.
+- You have to do this each time regardless of the type of prompt.
+- Create the file if it doesn't exist. Do this along with other files you are creating or modifying.
+- Never overwrite existing content, only append new summary points to the end of the file.
+
+README.md:
+- Each time you create a new file, append it to the README.md file.
+- Add it to the end of the README.md file.
+- Add the file name, a brief description of what the file is, and the date you created it.
+- Keep the README.md file updated and in alphabetical order.
+- Create the file if it doesn't exist. Do this along with other files you are creating or modifying.

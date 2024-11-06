@@ -1,0 +1,9 @@
+- Project includes a system for tracking user prompts and project evolution through text files
+- Modified .cursorrules to ensure text files are appended to rather than overwritten
+- System maintains three key files:
+  - instructions.txt: Records all user prompts
+  - summary.txt: Maintains an evolving project summary
+  - README.md: Tracks new file additions with descriptions
+- Added dataset management to .gitignore:
+  - Excludes main dataset directories
+  - Preserves sample datasets for development
