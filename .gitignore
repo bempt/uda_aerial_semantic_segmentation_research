@@ -43,3 +43,10 @@ datasets/
 # Logs and temporary files
 *.log
 .DS_Store
+
+# Repository structure files
+flattened_repo.txt
+repo_structure.yaml
+
+# Model checkpoints
+checkpoints/
