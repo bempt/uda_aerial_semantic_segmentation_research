@@ -2,6 +2,7 @@ import os
 import torch
 import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader, random_split
+from pathlib import Path
 
 from src.data.dataset import DroneDataset
 from src.data.target_dataset import TargetDataset
@@ -11,6 +12,7 @@ from src.models.augmentation import get_training_augmentation
 from src.models.config import Config
 from src.models.discriminator import DomainDiscriminator
 from src.models.losses import AdversarialLoss
+from src.data.prepare_holyrood import prepare_holyrood_dataset
 
 def test_system():
     print("Starting system test...")
@@ -217,6 +219,38 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Target domain dataset test failed: {str(e)}")
+        return False
+
+    # 9. Test Holyrood dataset preparation
+    print("\n9. Testing Holyrood dataset preparation...")
+    try:
+        # Use sample Holyrood dataset
+        holyrood_sample_dir = os.path.join('data', 'sample', 'holyrood')  # Changed path
+        
+        # Test loading Holyrood dataset
+        holyrood_dataset = TargetDataset(
+            images_dir=str(holyrood_sample_dir),
+            transform=get_training_augmentation()
+        )
+        
+        # Test dataloader
+        holyrood_loader = DataLoader(
+            holyrood_dataset,
+            batch_size=Config.BATCH_SIZE,
+            shuffle=True,
+            num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
+        )
+        
+        # Test batch loading
+        sample_batch = next(iter(holyrood_loader))
+        assert sample_batch.dim() == 4, "Batch should have 4 dimensions (B, C, H, W)"
+        
+        print("✓ Holyrood sample dataset tested successfully")
+        print(f"Total sample images: {len(holyrood_dataset)}")
+        print(f"Sample batch shape: {sample_batch.shape}")
+        
+    except Exception as e:
+        print(f"✗ Holyrood sample dataset test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")

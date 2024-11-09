@@ -30,6 +30,7 @@ data/**/*.npy
 data/**/*.npz
 data/**/*.h5
 data/**/*.hdf5
+data/**/*.zip
 !data/samples/**
 !data/**/*.py
 !data/**/*.ipynb
