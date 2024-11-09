@@ -33,7 +33,17 @@ wheels/
 /data/target/**/*.hdf5
 /data/target/**/*.zip
 
-# But include sample data
+# Add these new patterns
+/data/raw/**/*.jpg
+/data/raw/**/*.JPG
+/data/raw/**/*.png
+/data/raw/**/*.PNG
+/data/raw/**/*.jpeg
+/data/raw/**/*.JPEG
+/data/raw/**/*.zip
+/data/raw/**/*.ZIP
+
+# Keep sample data
 !/data/sample/**
 
 # Virtual Environment
@@ -60,3 +70,17 @@ repo_structure.yaml
 
 # Model checkpoints
 checkpoints/
+
+__pycache__/
+*.py[cod]
+*.so
+.env
+.venv
+env/
+venv/
+*.pt
+*.pth
+*.ckpt
+logs/
+tensorboard/
+.ipynb_checkpoints/
