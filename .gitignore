@@ -20,6 +20,24 @@ wheels/
 .installed.cfg
 *.egg
 
+# Datasets - exclude large data files but keep code and samples
+data/**/*.jpg
+data/**/*.png
+data/**/*.jpeg
+data/**/*.tif
+data/**/*.tiff
+data/**/*.npy
+data/**/*.npz
+data/**/*.h5
+data/**/*.hdf5
+!data/samples/**
+!data/**/*.py
+!data/**/*.ipynb
+!data/**/*.csv
+!data/**/*.json
+!data/**/*.yaml
+!data/**/*.yml
+
 # Virtual Environment
 venv/
 ENV/
@@ -33,12 +51,6 @@ env/
 
 # Config
 config.py
-
-# Datasets - exclude large datasets but keep samples
-data/
-datasets/
-!data/samples/
-!datasets/samples/
 
 # Logs and temporary files
 *.log
