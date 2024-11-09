@@ -4,10 +4,13 @@ import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader, random_split
 
 from src.data.dataset import DroneDataset
+from src.data.target_dataset import TargetDataset
 from src.models.train import SegmentationTrainer
 from src.models.predict import predict_mask
 from src.models.augmentation import get_training_augmentation
 from src.models.config import Config
+from src.models.discriminator import DomainDiscriminator
+from src.models.losses import AdversarialLoss
 
 def test_system():
     print("Starting system test...")
@@ -120,6 +123,100 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Prediction failed: {str(e)}")
+        return False
+
+    # 6. Test domain discriminator
+    print("\n6. Testing domain discriminator...")
+    try:
+        discriminator = DomainDiscriminator(input_channels=3)
+        
+        # Test with random input
+        batch_size = 4
+        test_input = torch.randn(batch_size, 3, 256, 256)  # Assuming 256x256 images
+        
+        # Forward pass
+        domain_predictions = discriminator(test_input)
+        
+        # Check output shape and values
+        assert domain_predictions.shape == (batch_size, 1), f"Expected shape {(batch_size, 1)}, got {domain_predictions.shape}"
+        assert torch.all((domain_predictions >= 0) & (domain_predictions <= 1)), "Predictions should be between 0 and 1"
+        
+        print("✓ Domain discriminator tested successfully")
+        print(f"Sample predictions shape: {domain_predictions.shape}")
+        print(f"Sample prediction values: {domain_predictions.squeeze().detach().numpy()}")
+        
+    except Exception as e:
+        print(f"✗ Domain discriminator test failed: {str(e)}")
+        return False
+
+    # 7. Testing adversarial losses
+    print("\n7. Testing adversarial losses...")
+    try:
+        adv_loss = AdversarialLoss(lambda_adv=0.001)
+        
+        # Create dummy predictions
+        batch_size = 4
+        source_pred = torch.rand(batch_size, 1)  # Random predictions between 0 and 1
+        target_pred = torch.rand(batch_size, 1)
+        
+        # Test discriminator loss
+        d_loss = adv_loss.discriminator_loss(source_pred, target_pred)
+        assert isinstance(d_loss, torch.Tensor), "Discriminator loss should be a tensor"
+        assert d_loss.shape == torch.Size([]), "Discriminator loss should be a scalar"
+        
+        # Test generator loss
+        g_loss = adv_loss.generator_loss(target_pred)
+        assert isinstance(g_loss, torch.Tensor), "Generator loss should be a tensor"
+        assert g_loss.shape == torch.Size([]), "Generator loss should be a scalar"
+        
+        print("✓ Adversarial losses tested successfully")
+        print(f"Sample discriminator loss: {d_loss.item():.4f}")
+        print(f"Sample generator loss: {g_loss.item():.4f}")
+        
+    except Exception as e:
+        print(f"✗ Adversarial losses test failed: {str(e)}")
+        return False
+
+    # 8. Test target domain dataset
+    print("\n8. Testing target domain dataset...")
+    try:
+        # Use the same sample directory for testing
+        # In practice, this would be a different directory with target domain images
+        target_images_dir = os.path.join(Config.SAMPLE_DATA_DIR, 'original_images')
+        
+        target_dataset = TargetDataset(
+            images_dir=target_images_dir,
+            transform=get_training_augmentation()
+        )
+        
+        # Test dataset size
+        assert len(target_dataset) > 0, "Target dataset is empty"
+        
+        # Test loading an image
+        sample_image = target_dataset[0]
+        assert isinstance(sample_image, torch.Tensor), "Dataset should return a tensor"
+        assert sample_image.dim() == 3, "Image should have 3 dimensions (C, H, W)"
+        assert sample_image.shape[0] == 3, "Image should have 3 channels"
+        
+        # Test dataloader
+        target_loader = DataLoader(
+            target_dataset,
+            batch_size=Config.BATCH_SIZE,
+            shuffle=True,
+            num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
+        )
+        
+        # Test batch loading
+        sample_batch = next(iter(target_loader))
+        assert sample_batch.dim() == 4, "Batch should have 4 dimensions (B, C, H, W)"
+        
+        print("✓ Target domain dataset tested successfully")
+        print(f"Dataset size: {len(target_dataset)}")
+        print(f"Sample image shape: {sample_image.shape}")
+        print(f"Sample batch shape: {sample_batch.shape}")
+        
+    except Exception as e:
+        print(f"✗ Target domain dataset test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")
