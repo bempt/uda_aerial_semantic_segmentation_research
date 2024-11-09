@@ -21,23 +21,20 @@ wheels/
 *.egg
 
 # Datasets - exclude large data files but keep code and samples
-data/**/*.jpg
-data/**/*.png
-data/**/*.jpeg
-data/**/*.tif
-data/**/*.tiff
-data/**/*.npy
-data/**/*.npz
-data/**/*.h5
-data/**/*.hdf5
-data/**/*.zip
-!data/samples/**
-!data/**/*.py
-!data/**/*.ipynb
-!data/**/*.csv
-!data/**/*.json
-!data/**/*.yaml
-!data/**/*.yml
+/data/target/**/*.JPG
+/data/target/**/*.jpg
+/data/target/**/*.png
+/data/target/**/*.jpeg
+/data/target/**/*.tif
+/data/target/**/*.tiff
+/data/target/**/*.npy
+/data/target/**/*.npz
+/data/target/**/*.h5
+/data/target/**/*.hdf5
+/data/target/**/*.zip
+
+# But include sample data
+!/data/sample/**
 
 # Virtual Environment
 venv/
