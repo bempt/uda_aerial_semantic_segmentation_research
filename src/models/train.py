@@ -14,6 +14,9 @@ from src.models.config import Config
 from src.models.augmentation import get_training_augmentation
 import segmentation_models_pytorch as smp
 import torchmetrics
+import torch.nn as nn
+from tqdm import tqdm
+from pathlib import Path
 
 def load_class_dict():
     """Load class dictionary from CSV file"""
@@ -88,158 +91,160 @@ class EarlyStopping:
             self.counter = 0
 
 class SegmentationTrainer:
-    def __init__(
-        self,
-        model,
-        device='cuda',
-        encoder_name='resnet50',
-        encoder_weights='imagenet',
-        classes=None,
-        activation=None,
-    ):
-        self.device = device
+    def __init__(self, model, device):
+        """
+        Initialize trainer.
+        
+        Args:
+            model: Segmentation model
+            device: Device to use for training
+        """
         self.model = model.to(device)
+        self.device = device
+        self.criterion = nn.CrossEntropyLoss()  # Changed from BCEWithLogitsLoss
         
-        # Initialize losses
-        self.criterion = smp.losses.DiceLoss(mode='multiclass')
+        # Initialize metrics for multi-class segmentation
+        self.iou_metric = torchmetrics.JaccardIndex(
+            task='multiclass',
+            num_classes=Config.NUM_CLASSES
+        ).to(device)
         
-        # Get number of classes from model if not provided
-        if classes is None:
-            classes = model.segmentation_head[0].out_channels
+    def calculate_metrics(self, outputs, masks):
+        """
+        Calculate training metrics.
         
-        # Initialize metrics using torchmetrics
-        self.metrics = {
-            'iou': torchmetrics.JaccardIndex(task='multiclass', num_classes=classes).to(device),
-            'accuracy': torchmetrics.Accuracy(task='multiclass', num_classes=classes).to(device)
+        Args:
+            outputs: Model predictions (B, C, H, W)
+            masks: Ground truth masks (B, H, W)
+            
+        Returns:
+            dict: Dictionary of metric values
+        """
+        # Get predicted class indices
+        pred_masks = outputs.argmax(dim=1)
+        
+        # Calculate IoU
+        iou = self.iou_metric(pred_masks, masks)
+        
+        # Calculate accuracy
+        accuracy = (pred_masks == masks).float().mean()
+        
+        return {
+            'iou': f'{iou.item():.4f}',
+            'accuracy': f'{accuracy.item():.4f}'
         }
         
-        # Setup timestamp for run identification
-        self.timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+    def train_epoch(self, dataloader, optimizer, epoch):
+        """
+        Train for one epoch.
         
-        # Initialize TensorBoard writer
-        self.writer = SummaryWriter(f'logs/{self.timestamp}')
-        
-    def train_epoch(self, dataloader, optimizer):
+        Args:
+            dataloader: Training data loader
+            optimizer: Optimizer
+            epoch: Current epoch number
+            
+        Returns:
+            float: Average loss for the epoch
+        """
         self.model.train()
-        epoch_loss = 0
+        total_loss = 0
         
-        for batch_idx, (images, masks) in enumerate(dataloader):
+        pbar = tqdm(dataloader, desc=f'Epoch {epoch}')
+        for images, masks in pbar:
             images = images.to(self.device)
-            # Convert masks to LongTensor
-            masks = masks.long().to(self.device)
+            masks = masks.to(self.device).long()  # Convert masks to long type
             
             optimizer.zero_grad()
             outputs = self.model(images)
-            loss = self.criterion(outputs, masks)
             
+            # CrossEntropyLoss expects (B, C, H, W) for outputs and (B, H, W) for targets
+            loss = self.criterion(outputs, masks)
             loss.backward()
             optimizer.step()
             
-            epoch_loss += loss.item()
+            total_loss += loss.item()
             
-            # Update metrics
-            for metric in self.metrics.values():
-                metric.update(outputs.argmax(dim=1), masks)
+            # Calculate and display metrics
+            with torch.no_grad():
+                metrics = self.calculate_metrics(outputs.detach(), masks)
+                pbar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'iou': metrics['iou'],
+                    'acc': metrics['accuracy']
+                })
             
-        # Compute epoch metrics
-        metrics = {name: metric.compute() for name, metric in self.metrics.items()}
-        # Reset metrics for next epoch
-        for metric in self.metrics.values():
-            metric.reset()
+        return total_loss / len(dataloader)
+        
+    def validate(self, dataloader):
+        """
+        Validate the model.
+        
+        Args:
+            dataloader: Validation data loader
             
-        return epoch_loss / len(dataloader), metrics
-    
-    def validate_epoch(self, dataloader):
+        Returns:
+            tuple: (validation loss, validation metrics)
+        """
         self.model.eval()
-        epoch_loss = 0
+        total_loss = 0
+        all_outputs = []
+        all_masks = []
         
         with torch.no_grad():
-            for batch_idx, (images, masks) in enumerate(dataloader):
+            for images, masks in dataloader:
                 images = images.to(self.device)
-                # Convert masks to LongTensor
-                masks = masks.long().to(self.device)
+                masks = masks.to(self.device).long()  # Convert masks to long type
                 
                 outputs = self.model(images)
                 loss = self.criterion(outputs, masks)
+                total_loss += loss.item()
                 
-                epoch_loss += loss.item()
-                
-                # Update metrics
-                for metric in self.metrics.values():
-                    metric.update(outputs.argmax(dim=1), masks)
+                all_outputs.append(outputs)
+                all_masks.append(masks)
             
-            # Compute epoch metrics
-            metrics = {name: metric.compute() for name, metric in self.metrics.items()}
-            # Reset metrics for next epoch
-            for metric in self.metrics.values():
-                metric.reset()
-                
-        return epoch_loss / len(dataloader), metrics
-    
-    def train(
-        self,
-        train_dataloader,
-        valid_dataloader,
-        epochs=100,
-        learning_rate=0.0001,
-        patience=7,
-    ):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        early_stopping = EarlyStopping(patience=patience, verbose=True)
+            # Concatenate all batches
+            all_outputs = torch.cat(all_outputs)
+            all_masks = torch.cat(all_masks)
+            
+            # Calculate metrics
+            metrics = self.calculate_metrics(all_outputs, all_masks)
+            
+        return total_loss / len(dataloader), metrics
         
-        # Create directory for saving models
-        save_dir = f'checkpoints/{self.timestamp}'
-        os.makedirs(save_dir, exist_ok=True)
+    def train(self, train_dataloader, valid_dataloader, epochs, learning_rate, patience=7):
+        """
+        Train the model.
+        
+        Args:
+            train_dataloader: Training data loader
+            valid_dataloader: Validation data loader
+            epochs: Number of epochs to train
+            learning_rate: Learning rate
+            patience: Early stopping patience
+        """
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         
         best_valid_loss = float('inf')
+        patience_counter = 0
         
-        for epoch in range(epochs):
-            # Training phase
-            train_loss, train_metrics = self.train_epoch(train_dataloader, optimizer)
+        for epoch in range(1, epochs + 1):
+            train_loss = self.train_epoch(train_dataloader, optimizer, epoch)
+            valid_loss, valid_metrics = self.validate(valid_dataloader)
             
-            # Validation phase
-            valid_loss, valid_metrics = self.validate_epoch(valid_dataloader)
-            
-            # Log metrics to TensorBoard
-            self.writer.add_scalar('Loss/train', train_loss, epoch)
-            self.writer.add_scalar('Loss/validation', valid_loss, epoch)
-            
-            for name, value in train_metrics.items():
-                self.writer.add_scalar(f'Metrics/{name}/train', value, epoch)
-            for name, value in valid_metrics.items():
-                self.writer.add_scalar(f'Metrics/{name}/validation', value, epoch)
-            
-            print(f'Epoch {epoch+1}/{epochs}:')
             print(f'Train Loss: {train_loss:.4f}')
             print(f'Valid Loss: {valid_loss:.4f}')
-            print('Train Metrics:', {k: f'{v:.4f}' for k, v in train_metrics.items()})
-            print('Valid Metrics:', {k: f'{v:.4f}' for k, v in valid_metrics.items()})
+            print(f'Valid Metrics: {valid_metrics}')
             
-            # Save best model
+            # Early stopping
             if valid_loss < best_valid_loss:
                 best_valid_loss = valid_loss
-                torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': self.model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'train_loss': train_loss,
-                    'valid_loss': valid_loss,
-                    'train_metrics': train_metrics,
-                    'valid_metrics': valid_metrics,
-                }, f'{save_dir}/best_model.pth')
-            
-            # Early stopping check
-            early_stopping(valid_loss)
-            if early_stopping.early_stop:
-                print("Early stopping triggered")
-                break
-        
-        self.writer.close()
-        
-    def load_checkpoint(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        return checkpoint
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                print(f'EarlyStopping counter: {patience_counter} out of {patience}')
+                if patience_counter >= patience:
+                    print(f'Early stopping after {epoch} epochs')
+                    break
 
 def train_model(
     data_dir=Config.DATA_DIR,

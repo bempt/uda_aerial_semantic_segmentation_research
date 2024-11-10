@@ -1,68 +1,81 @@
 """Dataset class for semantic drone dataset"""
 
 import os
-import cv2
-import numpy as np
-from torch.utils.data import Dataset
+from PIL import Image
 import torch
+from torch.utils.data import Dataset
+from torchvision import transforms
+from src.models.config import Config
 
 class DroneDataset(Dataset):
     def __init__(self, images_dir, masks_dir, transform=None):
         """
+        Dataset for semantic segmentation.
+        
         Args:
-            images_dir (str): Path to directory with original images
-            masks_dir (str): Path to directory with semantic mask images
-            transform: Optional transform to be applied to image/mask pairs
+            images_dir (str): Directory with input images
+            masks_dir (str): Directory with segmentation masks
+            transform (callable, optional): Optional transform to be applied
         """
         self.images_dir = images_dir
         self.masks_dir = masks_dir
         self.transform = transform
         
-        # Get sorted filenames
-        self.images = sorted([f for f in os.listdir(images_dir) if f.endswith('.jpg')])
-        self.masks = sorted([f for f in os.listdir(masks_dir) if f.endswith('.png')])
+        self.image_files = sorted([
+            f for f in os.listdir(images_dir)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+        ])
         
-        # Print debug info
-        print(f"Found {len(self.images)} images and {len(self.masks)} masks")
-        if len(self.images) > 0:
-            print(f"First image: {self.images[0]}")
-            print(f"First mask: {self.masks[0]}")
+        if len(self.image_files) == 0:
+            raise RuntimeError(f"No images found in {images_dir}")
+            
+        print(f"Found {len(self.image_files)} images and {len(self.image_files)} masks")
+        print(f"First image: {self.image_files[0]}")
+        print(f"First mask: {self.image_files[0].replace('.jpg', '.png')}")
         
-        # Verify matching pairs
-        assert len(self.images) == len(self.masks), \
-            f"Number of images ({len(self.images)}) != number of masks ({len(self.masks)})"
-
     def __len__(self):
-        return len(self.images)
-
+        return len(self.image_files)
+        
     def __getitem__(self, idx):
-        # Load image and mask
-        image_path = os.path.join(self.images_dir, self.images[idx])
-        mask_path = os.path.join(self.masks_dir, self.masks[idx])
+        # Load image
+        image_path = os.path.join(self.images_dir, self.image_files[idx])
+        mask_path = os.path.join(
+            self.masks_dir, 
+            self.image_files[idx].replace('.jpg', '.png')
+        )
         
-        # Read image (BGR)
-        image = cv2.imread(image_path)
-        if image is None:
-            raise ValueError(f"Could not read image: {image_path}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Load and convert image
+        image = Image.open(image_path).convert('RGB')
         
-        # Read mask - keep as is for multi-class segmentation
-        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        if mask is None:
-            raise ValueError(f"Could not read mask: {mask_path}")
+        # Load and convert mask
+        mask = Image.open(mask_path).convert('L')  # Load as grayscale
         
-        # Apply transforms if any
+        # Apply transforms to image
         if self.transform is not None:
-            # Keep mask as numpy array for albumentations
-            transformed = self.transform(image=image, mask=mask)
-            image = transformed['image']  # This will be a torch tensor
-            mask = transformed['mask']    # This will be a numpy array
+            image = self.transform(image)
+        else:
+            # Default transform for image
+            image = transforms.Compose([
+                transforms.Resize(Config.IMAGE_SIZE),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=Config.NORMALIZE_MEAN,
+                    std=Config.NORMALIZE_STD
+                )
+            ])(image)
         
-        # Convert mask to tensor after transforms
-        if not isinstance(mask, torch.Tensor):
-            mask = torch.from_numpy(mask)
+        # Transform mask
+        mask_transform = transforms.Compose([
+            transforms.Resize(
+                Config.IMAGE_SIZE,
+                interpolation=transforms.InterpolationMode.NEAREST
+            ),
+            transforms.ToTensor()
+        ])
+        mask = mask_transform(mask)
         
-        # Ensure mask is long type for criterion
-        mask = mask.long()
+        # Convert mask to proper shape (H, W) and type
+        mask = mask.squeeze(0)  # Remove channel dimension
+        mask = mask.long()  # Convert to long type for CrossEntropyLoss
         
         return image, mask

@@ -77,6 +77,10 @@ class AdversarialTrainer(SegmentationTrainer):
             source_masks = source_masks.to(self.device)
             target_images = target_images.to(self.device)
             
+            # Ensure source_masks has correct shape (B, H, W)
+            if source_masks.dim() == 4 and source_masks.size(1) == 1:
+                source_masks = source_masks.squeeze(1)
+            
             # Train discriminator
             self.discriminator_optimizer.zero_grad()
             
@@ -98,15 +102,6 @@ class AdversarialTrainer(SegmentationTrainer):
             
             # Segmentation loss on source domain
             source_seg_pred = self.model(source_images)
-            
-            # Ensure source_seg_pred and source_masks have the same size
-            if source_seg_pred.size() != source_masks.size():
-                # Assuming single-channel output needed
-                source_seg_pred = source_seg_pred.squeeze(1)  # Remove channel dim if needed
-                # Or expand masks if needed
-                if len(source_masks.size()) < len(source_seg_pred.size()):
-                    source_masks = source_masks.unsqueeze(1)
-            
             seg_loss = self.criterion(source_seg_pred, source_masks)
             
             # Adversarial loss on target domain
@@ -132,12 +127,12 @@ class AdversarialTrainer(SegmentationTrainer):
         
         return total_loss / len(source_dataloader), self.domain_metrics.get_metrics()
     
-    def validate(self, valid_dataloader):
+    def validate(self, dataloader):
         """
         Validate the model.
         
         Args:
-            valid_dataloader: DataLoader for validation data
+            dataloader: DataLoader for validation data
             
         Returns:
             tuple: (validation loss, validation metrics)
@@ -148,24 +143,19 @@ class AdversarialTrainer(SegmentationTrainer):
         total_accuracy = 0
         
         with torch.no_grad():
-            for images, masks in valid_dataloader:
+            for images, masks in dataloader:
                 images = images.to(self.device)
                 masks = masks.to(self.device)
                 
+                # Ensure masks has correct shape (B, H, W)
+                if masks.dim() == 4 and masks.size(1) == 1:
+                    masks = masks.squeeze(1)
+                
                 outputs = self.model(images)
-                
-                # Ensure outputs and masks have the same size
-                if outputs.size() != masks.size():
-                    # Assuming single-channel output needed
-                    outputs = outputs.squeeze(1)  # Remove channel dim if needed
-                    # Or expand masks if needed
-                    if len(masks.size()) < len(outputs.size()):
-                        masks = masks.unsqueeze(1)
-                
                 loss = self.criterion(outputs, masks)
                 
                 # Calculate metrics
-                pred_masks = (outputs > 0.5).float()
+                pred_masks = outputs.argmax(dim=1)
                 iou = self.calculate_iou(pred_masks, masks)
                 accuracy = (pred_masks == masks).float().mean()
                 
@@ -174,9 +164,9 @@ class AdversarialTrainer(SegmentationTrainer):
                 total_accuracy += accuracy
         
         # Calculate averages
-        avg_loss = total_loss / len(valid_dataloader)
-        avg_iou = total_iou / len(valid_dataloader)
-        avg_accuracy = total_accuracy / len(valid_dataloader)
+        avg_loss = total_loss / len(dataloader)
+        avg_iou = total_iou / len(dataloader)
+        avg_accuracy = total_accuracy / len(dataloader)
         
         metrics = {
             'iou': f'{avg_iou:.4f}',

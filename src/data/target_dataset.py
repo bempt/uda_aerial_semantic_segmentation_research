@@ -3,6 +3,7 @@ from PIL import Image
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from torchvision import transforms
 
 class TargetDataset(Dataset):
     """
@@ -34,17 +35,19 @@ class TargetDataset(Dataset):
         image_path = os.path.join(self.images_dir, self.image_files[idx])
         image = Image.open(image_path).convert('RGB')
         
-        # Convert to numpy array
-        image = np.array(image)
-        
         # Apply transforms if specified
         if self.transform is not None:
-            transformed = self.transform(image=image)
-            image = transformed['image']
+            image = self.transform(image)
+        else:
+            # Default transform if none provided
+            transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225]
+                ),
+                transforms.Resize((320, 320))
+            ])
+            image = transform(image)
             
-        # Convert to tensor if not already done by transform
-        if not isinstance(image, torch.Tensor):
-            image = torch.from_numpy(image.transpose(2, 0, 1)).float()
-            image = image / 255.0  # Normalize to [0, 1]
-            
-        return image 
+        return image

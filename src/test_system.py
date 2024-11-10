@@ -14,12 +14,15 @@ from src.models.discriminator import DomainDiscriminator
 from src.models.losses import AdversarialLoss
 from src.data.prepare_holyrood import prepare_holyrood_dataset
 from src.models.adversarial_trainer import AdversarialTrainer
+from src.models.phase_manager import PhaseManager, TrainingPhase
+from src.data.setup_test_data import setup_test_data
 
 def test_system():
     print("Starting system test...")
     
-    # Setup directories
+    # Setup directories and test data
     Config.setup_directories()
+    setup_test_data()
     
     # 1. Test data loading
     print("\n1. Testing data loading...")
@@ -313,6 +316,50 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Adversarial trainer test failed: {str(e)}")
+        return False
+
+    # 11. Test phase manager
+    print("\n11. Testing phase manager...")
+    try:
+        # Create phase manager
+        phase_manager = PhaseManager(
+            model=model,
+            device=Config.DEVICE,
+            checkpoints_dir=Config.CHECKPOINTS_DIR
+        )
+        
+        # Test phase transitions
+        assert phase_manager.get_current_phase() == TrainingPhase.SEGMENTATION
+        
+        # Test checkpoint saving
+        test_metrics = {
+            'iou': '0.6',  # High enough to trigger transition
+            'accuracy': '0.85',
+            'domain_confusion': '0.3'
+        }
+        
+        phase_manager.save_checkpoint(
+            trainer=adv_trainer,
+            metrics=test_metrics,
+            phase=TrainingPhase.SEGMENTATION
+        )
+        
+        # Test transition logic
+        can_transition = phase_manager.can_transition(test_metrics)
+        assert can_transition, "Should be ready to transition with good metrics"
+        
+        new_phase = phase_manager.transition_to_next_phase()
+        assert new_phase == TrainingPhase.ADVERSARIAL
+        
+        # Test checkpoint loading
+        success = phase_manager.load_checkpoint(TrainingPhase.SEGMENTATION)
+        assert success, "Should successfully load saved checkpoint"
+        
+        print("✓ Phase manager tested successfully")
+        print(f"Current phase: {phase_manager.get_current_phase().name}")
+        
+    except Exception as e:
+        print(f"✗ Phase manager test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")

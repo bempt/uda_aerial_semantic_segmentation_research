@@ -2,11 +2,9 @@ import os
 import torch
 import cv2
 import numpy as np
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-import segmentation_models_pytorch as smp
-from datetime import datetime
-import pandas as pd
+from PIL import Image
+from torchvision import transforms
+from pathlib import Path
 from src.models.config import Config
 
 def load_class_dict():
@@ -37,28 +35,80 @@ def create_colored_mask(prediction, class_df):
     
     return colored_mask
 
-def create_overlay(image, colored_mask, alpha=0.5):
-    """Create overlay of prediction on original image"""
-    return cv2.addWeighted(image, 1-alpha, colored_mask, alpha, 0)
-
-def predict_mask(model, img, device='cuda'):
+def create_overlay(image, mask, alpha=0.5):
     """
-    Predict segmentation mask for a single image
+    Create an overlay of the original image and predicted mask.
     
     Args:
-        model: PyTorch model
-        img: Input image tensor [1, C, H, W]
-        device: Device to run prediction on
+        image: Original image (PIL Image or numpy array)
+        mask: Predicted mask (numpy array)
+        alpha: Transparency of the overlay (0-1)
         
     Returns:
-        Predicted mask as numpy array
+        PIL.Image: Overlay image
     """
+    if isinstance(image, torch.Tensor):
+        # Denormalize and convert to PIL Image
+        image = image.cpu().numpy().transpose(1, 2, 0)
+        image = (image * np.array(Config.NORMALIZE_STD) + 
+                np.array(Config.NORMALIZE_MEAN))
+        image = (image * 255).clip(0, 255).astype(np.uint8)
+        image = Image.fromarray(image)
+    elif isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+    
+    # Convert mask to RGB
+    mask = (mask * 255).astype(np.uint8)
+    mask_colored = np.zeros((*mask.shape, 3), dtype=np.uint8)
+    mask_colored[mask > 0] = [255, 0, 0]  # Red for positive predictions
+    mask_colored = Image.fromarray(mask_colored)
+    
+    # Create overlay
+    overlay = Image.blend(image, mask_colored, alpha)
+    return overlay
+
+def predict_mask(model, img, device=None):
+    """
+    Predict segmentation mask for a given image.
+    
+    Args:
+        model: Trained segmentation model
+        img: Input image (PIL Image, numpy array, or tensor)
+        device: Device to use for prediction
+        
+    Returns:
+        numpy.ndarray: Predicted segmentation mask
+    """
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     model.eval()
+    
+    # Convert input to tensor if needed
+    if isinstance(img, np.ndarray):
+        img = Image.fromarray(img)
+    if isinstance(img, Image.Image):
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=Config.NORMALIZE_MEAN,
+                std=Config.NORMALIZE_STD
+            ),
+            transforms.Resize(Config.IMAGE_SIZE)
+        ])
+        img = transform(img)
+    
+    if img.dim() == 3:
+        img = img.unsqueeze(0)  # Add batch dimension
+    
+    img = img.to(device)
+    
     with torch.no_grad():
-        img = img.to(device)
-        output = model(img)
-        pred_mask = output.argmax(dim=1)
-        return pred_mask.cpu().numpy()
+        mask = model(img)
+        mask = torch.sigmoid(mask)
+        mask = (mask > 0.5).float()
+        
+    return mask.squeeze().cpu().numpy()
 
 def predict_batch(model, images, device='cuda'):
     """

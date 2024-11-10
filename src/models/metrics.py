@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from sklearn.metrics import confusion_matrix
 
 class DomainAdaptationMetrics:
     """
