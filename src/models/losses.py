@@ -24,17 +24,14 @@ class AdversarialLoss:
         Returns:
             torch.Tensor: Discriminator loss
         """
-        # Source domain should be classified as 0
-        source_label = torch.zeros_like(source_pred)
-        source_loss = self.bce_loss(source_pred, source_label)
+        device = source_pred.device
+        source_label = torch.ones_like(source_pred).to(device)
+        target_label = torch.zeros_like(target_pred).to(device)
         
-        # Target domain should be classified as 1
-        target_label = torch.ones_like(target_pred)
+        source_loss = self.bce_loss(source_pred, source_label)
         target_loss = self.bce_loss(target_pred, target_label)
         
-        # Total discriminator loss
-        d_loss = (source_loss + target_loss) / 2
-        return d_loss
+        return (source_loss + target_loss) / 2
         
     def generator_loss(self, target_pred):
         """
@@ -47,6 +44,63 @@ class AdversarialLoss:
         Returns:
             torch.Tensor: Generator adversarial loss
         """
-        target_label = torch.zeros_like(target_pred)  # Try to fool discriminator
-        g_loss = self.bce_loss(target_pred, target_label)
-        return self.lambda_adv * g_loss 
+        device = target_pred.device
+        target_label = torch.ones_like(target_pred).to(device)
+        return self.lambda_adv * self.bce_loss(target_pred, target_label)
+
+class ConsistencyLoss(nn.Module):
+    """
+    Consistency loss for unsupervised learning.
+    Enforces consistent predictions between different augmented versions of the same image.
+    """
+    def __init__(self, temperature=0.5):
+        super().__init__()
+        self.temperature = temperature
+        
+    def forward(self, pred1, pred2):
+        """
+        Calculate consistency loss between two predictions.
+        
+        Args:
+            pred1: First prediction tensor (B, C, H, W)
+            pred2: Second prediction tensor (B, C, H, W)
+            
+        Returns:
+            torch.Tensor: Consistency loss value
+        """
+        # Apply softmax with temperature
+        prob1 = F.softmax(pred1 / self.temperature, dim=1)
+        prob2 = F.softmax(pred2 / self.temperature, dim=1)
+        
+        # Calculate KL divergence in both directions
+        loss_kl_1 = F.kl_div(
+            F.log_softmax(pred1 / self.temperature, dim=1),
+            prob2,
+            reduction='batchmean'
+        )
+        loss_kl_2 = F.kl_div(
+            F.log_softmax(pred2 / self.temperature, dim=1),
+            prob1,
+            reduction='batchmean'
+        )
+        
+        # Take the mean of both directions
+        return (loss_kl_1 + loss_kl_2) / 2
+    
+    def get_similarity_matrix(self, pred1, pred2):
+        """
+        Calculate similarity matrix between predictions for visualization.
+        
+        Args:
+            pred1: First prediction tensor (B, C, H, W)
+            pred2: Second prediction tensor (B, C, H, W)
+            
+        Returns:
+            torch.Tensor: Similarity matrix (B, H, W)
+        """
+        prob1 = F.softmax(pred1, dim=1)
+        prob2 = F.softmax(pred2, dim=1)
+        
+        # Calculate cosine similarity across channel dimension
+        similarity = F.cosine_similarity(prob1, prob2, dim=1)
+        return similarity

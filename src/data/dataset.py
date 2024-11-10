@@ -1,11 +1,10 @@
 """Dataset class for semantic drone dataset"""
 
 import os
-from PIL import Image
+import cv2
+import numpy as np
 import torch
 from torch.utils.data import Dataset
-from torchvision import transforms
-from src.models.config import Config
 
 class DroneDataset(Dataset):
     def __init__(self, images_dir, masks_dir, transform=None):
@@ -21,61 +20,44 @@ class DroneDataset(Dataset):
         self.masks_dir = masks_dir
         self.transform = transform
         
-        self.image_files = sorted([
-            f for f in os.listdir(images_dir)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-        ])
+        # Get sorted lists of files
+        self.images = sorted([f for f in os.listdir(images_dir) if f.endswith(('.jpg', '.png'))])
+        self.masks = sorted([f for f in os.listdir(masks_dir) if f.endswith('.png')])
         
-        if len(self.image_files) == 0:
-            raise RuntimeError(f"No images found in {images_dir}")
-            
-        print(f"Found {len(self.image_files)} images and {len(self.image_files)} masks")
-        print(f"First image: {self.image_files[0]}")
-        print(f"First mask: {self.image_files[0].replace('.jpg', '.png')}")
+        # Print some info
+        print(f"Found {len(self.images)} images and {len(self.masks)} masks")
+        if len(self.images) > 0:
+            print(f"First image: {self.images[0]}")
+            print(f"First mask: {self.masks[0]}")
         
+        # Verify matching pairs
+        assert len(self.images) == len(self.masks), \
+            f"Number of images ({len(self.images)}) != number of masks ({len(self.masks)})"
+    
     def __len__(self):
-        return len(self.image_files)
+        return len(self.images)
         
     def __getitem__(self, idx):
+        """Get image and mask for given index."""
         # Load image
-        image_path = os.path.join(self.images_dir, self.image_files[idx])
-        mask_path = os.path.join(
-            self.masks_dir, 
-            self.image_files[idx].replace('.jpg', '.png')
-        )
+        image_path = os.path.join(self.images_dir, self.images[idx])
+        mask_path = os.path.join(self.masks_dir, self.masks[idx])
         
-        # Load and convert image
-        image = Image.open(image_path).convert('RGB')
+        # Read image and mask
+        image = cv2.imread(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         
-        # Load and convert mask
-        mask = Image.open(mask_path).convert('L')  # Load as grayscale
+        # Apply transforms
+        if self.transform:
+            transformed = self.transform(image=image, mask=mask)
+            image = transformed['image']
+            mask = transformed['mask']
         
-        # Apply transforms to image
-        if self.transform is not None:
-            image = self.transform(image)
-        else:
-            # Default transform for image
-            image = transforms.Compose([
-                transforms.Resize(Config.IMAGE_SIZE),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=Config.NORMALIZE_MEAN,
-                    std=Config.NORMALIZE_STD
-                )
-            ])(image)
-        
-        # Transform mask
-        mask_transform = transforms.Compose([
-            transforms.Resize(
-                Config.IMAGE_SIZE,
-                interpolation=transforms.InterpolationMode.NEAREST
-            ),
-            transforms.ToTensor()
-        ])
-        mask = mask_transform(mask)
-        
-        # Convert mask to proper shape (H, W) and type
-        mask = mask.squeeze(0)  # Remove channel dimension
-        mask = mask.long()  # Convert to long type for CrossEntropyLoss
+        # Convert mask to long tensor if it's still a numpy array
+        if isinstance(mask, np.ndarray):
+            mask = torch.from_numpy(mask).long()
+        elif isinstance(mask, torch.Tensor) and mask.dtype != torch.long:
+            mask = mask.long()
         
         return image, mask

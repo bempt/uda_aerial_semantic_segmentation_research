@@ -3,15 +3,16 @@ import torch
 import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader, random_split
 from pathlib import Path
+import numpy as np
 
 from src.data.dataset import DroneDataset
 from src.data.target_dataset import TargetDataset
 from src.models.train import SegmentationTrainer
 from src.models.predict import predict_mask
-from src.models.augmentation import get_training_augmentation
+from src.models.augmentation import get_training_augmentation, get_strong_augmentation
 from src.models.config import Config
 from src.models.discriminator import DomainDiscriminator
-from src.models.losses import AdversarialLoss
+from src.models.losses import AdversarialLoss, ConsistencyLoss
 from src.data.prepare_holyrood import prepare_holyrood_dataset
 from src.models.adversarial_trainer import AdversarialTrainer
 from src.models.phase_manager import PhaseManager, TrainingPhase
@@ -360,6 +361,49 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Phase manager test failed: {str(e)}")
+        return False
+
+    # 12. Test unsupervised fine-tuning components
+    print("\n12. Testing unsupervised fine-tuning components...")
+    try:
+        # Test consistency loss
+        consistency_loss = ConsistencyLoss()
+        
+        # Create dummy predictions for same image with different augmentations
+        batch_size = 4
+        pred1 = torch.rand(batch_size, Config.NUM_CLASSES, 256, 256)
+        pred2 = torch.rand(batch_size, Config.NUM_CLASSES, 256, 256)
+        
+        # Test consistency loss calculation
+        cons_loss = consistency_loss(pred1, pred2)
+        assert isinstance(cons_loss, torch.Tensor), "Consistency loss should be a tensor"
+        assert cons_loss.shape == torch.Size([]), "Consistency loss should be a scalar"
+        
+        # Test strong augmentation pipeline
+        strong_aug = get_strong_augmentation()
+        
+        # Test with sample image (create dummy image)
+        sample_image = np.random.randint(0, 255, (256, 256, 3), dtype=np.uint8)
+        
+        # Apply augmentation
+        augmented = strong_aug(image=sample_image)
+        augmented_image = augmented['image']
+        
+        # Verify output
+        assert isinstance(augmented_image, torch.Tensor), "Augmented image should be a tensor"
+        assert augmented_image.shape == torch.Size([3, 256, 256]), "Wrong output shape"
+        
+        # Test domain confusion metrics
+        confusion_metrics = adv_trainer.domain_metrics.get_confusion_metrics()
+        assert 'domain_entropy' in confusion_metrics, "Should track domain entropy"
+        assert 'feature_alignment' in confusion_metrics, "Should track feature alignment"
+        
+        print("✓ Unsupervised fine-tuning components tested successfully")
+        print("Consistency loss value:", cons_loss.item())
+        print("Domain confusion metrics:", confusion_metrics)
+        
+    except Exception as e:
+        print(f"✗ Unsupervised fine-tuning test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")

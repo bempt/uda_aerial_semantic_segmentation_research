@@ -1,8 +1,34 @@
-I am using fr.sh to create a .yaml of the file structure of my repo to give context to Cursor Composer. However, it is very slow. I am looking for a much faster method of creating/updating the file structure.
+@Segmentation Models PyTorch  Look through the code in this project and tell me which elements have not been completed yet. Do not write any code yet.
 ---
-I want to add a timer for how long it takes to complete
+Continue with the next 1 step. Remember to change the test_system in lockstep.
 ---
-I don't want Cursor Composer to overwrite the contents of the .txt files when a new composer is created, I want new prompts/information to be appended to the bottom
+Fix Config class missing MODEL_NAME attribute causing test_system.py to fail
 ---
-I want the .gitignore to avoid the datasets. The tiny sample datasets are ok.
+Fix Config class missing NUM_EPOCHS attribute causing test_system.py to fail
+---
+Add get_strong_augmentation function to augmentation.py for Phase 3 testing
+---
+Fix numpy version conflict with imgaug by adding version constraint
+---
+Add ConsistencyLoss class to losses.py for Phase 3 testing
+---
+Create setup_test_data.py for test data preparation
+---
+Update augmentation.py to use current albumentations transforms
+---
+Update DroneDataset to properly use albumentations transforms
+---
+Update TargetDataset to properly use albumentations transforms
+---
+Add resizing to TargetDataset to handle different image sizes
+---
+Fix mask tensor type in DroneDataset
+---
+Fix augmentation parameters and return types
+---
+Update test_system.py to properly test augmentations
+---
+Add get_confusion_metrics to DomainAdaptationMetrics
+---
+Add update method to DomainAdaptationMetrics
 ---

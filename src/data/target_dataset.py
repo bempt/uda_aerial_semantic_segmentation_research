@@ -1,53 +1,55 @@
 import os
-from PIL import Image
-import numpy as np
+import cv2
 import torch
+import numpy as np
 from torch.utils.data import Dataset
-from torchvision import transforms
 
 class TargetDataset(Dataset):
-    """
-    Dataset class for target domain images (no labels required).
-    """
-    def __init__(self, images_dir, transform=None):
+    """Dataset class for target domain images (no labels)."""
+    
+    def __init__(self, images_dir, transform=None, target_size=(256, 256)):
         """
         Args:
             images_dir (str): Path to directory containing target domain images
-            transform (callable, optional): Optional transform to be applied on images
+            transform (callable, optional): Optional transform to be applied
+            target_size (tuple): Target size for resizing (height, width)
         """
         self.images_dir = images_dir
         self.transform = transform
+        self.target_size = target_size
         
-        # Get all image files
-        self.image_files = sorted([
-            f for f in os.listdir(images_dir)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+        # Get sorted list of image files
+        self.images = sorted([
+            f for f in os.listdir(images_dir) 
+            if f.endswith(('.jpg', '.png', '.jpeg'))
         ])
         
-        if len(self.image_files) == 0:
-            raise RuntimeError(f"No images found in {images_dir}")
-            
+        print(f"Found {len(self.images)} target domain images")
+        if len(self.images) > 0:
+            print(f"First target image: {self.images[0]}")
+    
     def __len__(self):
-        return len(self.image_files)
-        
+        return len(self.images)
+    
     def __getitem__(self, idx):
+        """Get image for given index."""
         # Load image
-        image_path = os.path.join(self.images_dir, self.image_files[idx])
-        image = Image.open(image_path).convert('RGB')
+        image_path = os.path.join(self.images_dir, self.images[idx])
         
-        # Apply transforms if specified
-        if self.transform is not None:
-            image = self.transform(image)
-        else:
-            # Default transform if none provided
-            transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225]
-                ),
-                transforms.Resize((320, 320))
-            ])
-            image = transform(image)
+        # Read image
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"Failed to load image: {image_path}")
+            
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Resize image to target size
+        if self.target_size:
+            image = cv2.resize(image, self.target_size, interpolation=cv2.INTER_AREA)
+        
+        # Apply transforms
+        if self.transform:
+            transformed = self.transform(image=image)
+            image = transformed['image']
             
         return image
