@@ -20,8 +20,23 @@ wheels/
 .installed.cfg
 *.egg
 
-data/
-!data/.gitkeep
+# Add these to your .gitignore
+# Image files
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.gif
+*.bmp
+*.webp
+
+# Results and data
+results/
+data/raw/
+data/processed/
+data/interim/
+*.zip
 
 # Virtual Environment
 venv/
