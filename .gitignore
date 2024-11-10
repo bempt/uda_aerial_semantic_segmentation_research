@@ -20,31 +20,8 @@ wheels/
 .installed.cfg
 *.egg
 
-# Datasets - exclude large data files but keep code and samples
-/data/target/**/*.JPG
-/data/target/**/*.jpg
-/data/target/**/*.png
-/data/target/**/*.jpeg
-/data/target/**/*.tif
-/data/target/**/*.tiff
-/data/target/**/*.npy
-/data/target/**/*.npz
-/data/target/**/*.h5
-/data/target/**/*.hdf5
-/data/target/**/*.zip
-
-# Add these new patterns
-/data/raw/**/*.jpg
-/data/raw/**/*.JPG
-/data/raw/**/*.png
-/data/raw/**/*.PNG
-/data/raw/**/*.jpeg
-/data/raw/**/*.JPEG
-/data/raw/**/*.zip
-/data/raw/**/*.ZIP
-
-# Keep sample data
-!/data/sample/**
+data/
+!data/.gitkeep
 
 # Virtual Environment
 venv/
@@ -83,4 +60,4 @@ venv/
 *.ckpt
 logs/
 tensorboard/
-.ipynb_checkpoints/
+.ipynb_checkpoints//data/
