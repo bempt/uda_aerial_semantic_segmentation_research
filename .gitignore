@@ -33,9 +33,7 @@ wheels/
 
 # Results and data
 results/
-data/raw/
-data/processed/
-data/interim/
+data/
 *.zip
 
 # Virtual Environment
