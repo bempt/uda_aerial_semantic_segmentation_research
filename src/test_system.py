@@ -13,6 +13,7 @@ from src.models.config import Config
 from src.models.discriminator import DomainDiscriminator
 from src.models.losses import AdversarialLoss
 from src.data.prepare_holyrood import prepare_holyrood_dataset
+from src.models.adversarial_trainer import AdversarialTrainer
 
 def test_system():
     print("Starting system test...")
@@ -251,6 +252,67 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Holyrood sample dataset test failed: {str(e)}")
+        return False
+
+    # 10. Test adversarial trainer
+    print("\n10. Testing adversarial trainer...")
+    try:
+        # Create trainer
+        adv_trainer = AdversarialTrainer(
+            model=model,
+            device=Config.DEVICE,
+            lambda_adv=0.001
+        )
+        
+        # Get source and target datasets
+        source_dataset = DroneDataset(
+            images_dir=os.path.join(Config.SAMPLE_DATA_DIR, 'original_images'),
+            masks_dir=os.path.join(Config.SAMPLE_DATA_DIR, 'label_images_semantic'),
+            transform=get_training_augmentation()
+        )
+        
+        target_dataset = TargetDataset(
+            images_dir=os.path.join("data/target/holyrood"),
+            transform=get_training_augmentation()
+        )
+        
+        # Create dataloaders
+        source_loader = DataLoader(
+            source_dataset,
+            batch_size=Config.BATCH_SIZE,
+            shuffle=True,
+            num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
+        )
+        
+        target_loader = DataLoader(
+            target_dataset,
+            batch_size=Config.BATCH_SIZE,
+            shuffle=True,
+            num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
+        )
+        
+        # Run a mini training session
+        adv_trainer.train(
+            source_dataloader=source_loader,
+            target_dataloader=target_loader,
+            valid_dataloader=val_loader,
+            epochs=2,
+            learning_rate=Config.LEARNING_RATE,
+            patience=Config.PATIENCE
+        )
+        
+        # Verify domain adaptation metrics
+        assert hasattr(adv_trainer, 'domain_metrics'), "Trainer should have domain metrics"
+        metrics = adv_trainer.domain_metrics.get_metrics()
+        assert 'source_domain_acc' in metrics, "Should track source domain accuracy"
+        assert 'target_domain_acc' in metrics, "Should track target domain accuracy"
+        assert 'domain_confusion' in metrics, "Should track domain confusion"
+        
+        print("✓ Adversarial trainer tested successfully")
+        print("Domain adaptation metrics:", metrics)
+        
+    except Exception as e:
+        print(f"✗ Adversarial trainer test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")
