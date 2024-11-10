@@ -12,7 +12,7 @@ from src.models.predict import predict_mask
 from src.models.augmentation import get_training_augmentation, get_strong_augmentation
 from src.models.config import Config
 from src.models.discriminator import DomainDiscriminator
-from src.models.losses import AdversarialLoss, ConsistencyLoss
+from src.models.losses import AdversarialLoss, ConsistencyLoss, DiceLoss
 from src.data.prepare_holyrood import prepare_holyrood_dataset
 from src.models.adversarial_trainer import AdversarialTrainer
 from src.models.phase_manager import PhaseManager, TrainingPhase
@@ -75,6 +75,36 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Model creation failed: {str(e)}")
+        return False
+
+    # 2b. Test Dice Loss
+    print("\n2b. Testing Dice Loss...")
+    try:
+        dice_loss = DiceLoss()
+        
+        # Create dummy predictions and targets
+        batch_size = 4
+        num_classes = Config.NUM_CLASSES
+        predictions = torch.rand(batch_size, num_classes, 256, 256)
+        targets = torch.randint(0, num_classes, (batch_size, 256, 256))
+        
+        # Convert targets to one-hot
+        targets_one_hot = torch.nn.functional.one_hot(targets, num_classes)
+        targets_one_hot = targets_one_hot.permute(0, 3, 1, 2).float()
+        
+        # Calculate loss
+        loss = dice_loss(predictions, targets_one_hot)
+        
+        # Verify loss properties
+        assert isinstance(loss, torch.Tensor), "Loss should be a tensor"
+        assert loss.shape == torch.Size([]), "Loss should be a scalar"
+        assert loss >= 0 and loss <= 1, "Dice loss should be between 0 and 1"
+        
+        print("✓ Dice Loss tested successfully")
+        print(f"Sample Dice Loss: {loss.item():.4f}")
+        
+    except Exception as e:
+        print(f"✗ Dice Loss test failed: {str(e)}")
         return False
 
     # 3. Test training loop

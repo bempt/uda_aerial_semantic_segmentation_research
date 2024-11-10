@@ -104,3 +104,40 @@ class ConsistencyLoss(nn.Module):
         # Calculate cosine similarity across channel dimension
         similarity = F.cosine_similarity(prob1, prob2, dim=1)
         return similarity
+
+class DiceLoss(nn.Module):
+    """
+    Dice Loss for semantic segmentation with proper tensor handling
+    """
+    def __init__(self, smooth=1.0):
+        super(DiceLoss, self).__init__()
+        self.smooth = smooth
+        
+    def forward(self, predictions, targets):
+        """
+        Calculate Dice Loss
+        Args:
+            predictions: Model predictions (B, C, H, W)
+            targets: Ground truth in one-hot format (B, C, H, W)
+        Returns:
+            Dice loss value
+        """
+        batch_size = predictions.size(0)
+        num_classes = predictions.size(1)
+        
+        # Apply softmax to predictions
+        pred_probs = F.softmax(predictions, dim=1)
+        
+        # Reshape tensors to (B, C, H*W)
+        pred_flat = pred_probs.reshape(batch_size, num_classes, -1)
+        targets_flat = targets.reshape(batch_size, num_classes, -1)
+        
+        # Calculate intersection and union per class and batch
+        intersection = (pred_flat * targets_flat).sum(2)  # Sum over H*W
+        union = pred_flat.sum(2) + targets_flat.sum(2)   # Sum over H*W
+        
+        # Calculate Dice coefficient per class
+        dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
+        
+        # Average over classes and batch
+        return 1.0 - dice.mean()
