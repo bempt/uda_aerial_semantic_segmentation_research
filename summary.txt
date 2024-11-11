@@ -40,3 +40,22 @@
 - Added comprehensive metric logging for training and validation
 - Added learning rate and prediction visualization logging
 - Updated tests to verify logging functionality
+- Added LOG_INTERVAL configuration parameter to Config class
+- Fixed tensor type handling in training loop visualization
+- Added per-class IoU metrics and logging
+- Added confusion matrix visualization
+- Added ROC curves for each class
+- Added precision-recall curves
+- Updated tests to verify advanced metrics logging
+- Added seaborn dependency for confusion matrix visualization
+- Added LOG_INTERVAL to Config class for controlling logging frequency
+- Fixed tensor type handling in TensorboardLogger for int64 tensors
+- Updated prediction visualization to handle tensor types properly
+- Added visualization utils module with create_overlay function
+- Added custom overlay creation for segmentation visualization
+- Updated test_system.py to properly verify Tensorboard event files
+- Added comprehensive checks for required metrics and visualizations
+- Fixed Tensorboard tag verification to properly handle available tags
+- Improved Tensorboard event file handling with proper waiting and size guidance
+- Fixed scalar metric logging to use writer directly
+- Updated training loop to use global step for consistent logging

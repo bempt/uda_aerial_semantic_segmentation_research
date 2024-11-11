@@ -46,10 +46,14 @@ class TensorboardLogger:
             if image.dim() == 2:  # Handle grayscale
                 image = image.unsqueeze(0)
             if image.dim() == 3:
+                if image.dtype == torch.int64 or image.dtype == torch.long:
+                    image = image.float()
                 if image.size(0) == 1:  # Grayscale
                     image = image.repeat(3, 1, 1)
                 image = T.ToPILImage()(image)
         elif isinstance(image, np.ndarray):
+            if image.dtype == np.int64:
+                image = image.astype(np.float32)
             if image.ndim == 2:  # Handle grayscale
                 image = np.stack([image] * 3, axis=2)
             image = Image.fromarray(image)

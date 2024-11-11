@@ -20,6 +20,11 @@ from pathlib import Path
 from src.visualization.tensorboard_logger import TensorboardLogger
 import numpy as np
 import torchvision.utils as utils
+import sklearn.metrics as skmetrics
+import matplotlib.pyplot as plt
+import seaborn as sns
+from typing import Dict, List
+from src.visualization import utils as viz_utils
 
 def load_class_dict():
     """Load class dictionary from CSV file"""
@@ -113,18 +118,119 @@ class SegmentationTrainer:
         # Initialize tensorboard logger
         self.logger = TensorboardLogger(log_dir=Config.LOGS_DIR)
         
+        # Add per-class IoU metrics
+        self.per_class_iou_metrics = nn.ModuleList([
+            torchmetrics.JaccardIndex(
+                task='binary',
+                num_classes=2
+            ).to(device) for _ in range(Config.NUM_CLASSES)
+        ])
+        
     def calculate_metrics(self, outputs, masks):
         """Calculate training metrics."""
         pred_masks = outputs.argmax(dim=1)
-        iou = self.iou_metric(pred_masks, masks)
-        accuracy = (pred_masks == masks).float().mean()
         
+        # Calculate overall IoU and accuracy
         metrics = {
-            'iou': iou.item(),
-            'accuracy': accuracy.item()
+            'iou': self.iou_metric(pred_masks, masks).item(),
+            'accuracy': (pred_masks == masks).float().mean().item()
         }
+        
+        # Calculate per-class IoU
+        for class_idx in range(Config.NUM_CLASSES):
+            class_pred = (pred_masks == class_idx)
+            class_true = (masks == class_idx)
+            metrics[f'iou_class_{class_idx}'] = self.per_class_iou_metrics[class_idx](
+                class_pred, class_true
+            ).item()
+            
         return metrics
         
+    def _log_confusion_matrix(self, outputs, masks, step: int, prefix: str = 'train'):
+        """Log confusion matrix visualization."""
+        pred_masks = outputs.argmax(dim=1).cpu().numpy()
+        true_masks = masks.cpu().numpy()
+        
+        # Calculate confusion matrix
+        cm = skmetrics.confusion_matrix(
+            true_masks.flatten(),
+            pred_masks.flatten(),
+            labels=range(Config.NUM_CLASSES)
+        )
+        
+        # Create confusion matrix plot
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            xticklabels=range(Config.NUM_CLASSES),
+            yticklabels=range(Config.NUM_CLASSES)
+        )
+        plt.title(f'{prefix.capitalize()} Confusion Matrix')
+        plt.xlabel('Predicted')
+        plt.ylabel('True')
+        
+        # Log to tensorboard
+        self.logger.log_figure(f'{prefix}/confusion_matrix', plt.gcf(), step)
+        plt.close()
+        
+    def _log_roc_curves(self, outputs: torch.Tensor, masks: torch.Tensor, 
+                       step: int, prefix: str = 'train'):
+        """Log ROC curves for each class."""
+        # Convert to probabilities
+        probs = torch.softmax(outputs, dim=1)
+        
+        plt.figure(figsize=(10, 8))
+        
+        # Calculate ROC curve for each class
+        for class_idx in range(Config.NUM_CLASSES):
+            class_probs = probs[:, class_idx].cpu().numpy().flatten()
+            class_true = (masks == class_idx).cpu().numpy().flatten()
+            
+            fpr, tpr, _ = skmetrics.roc_curve(class_true, class_probs)
+            auc = skmetrics.auc(fpr, tpr)
+            
+            plt.plot(fpr, tpr, label=f'Class {class_idx} (AUC = {auc:.2f})')
+        
+        plt.plot([0, 1], [0, 1], 'k--')
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title(f'{prefix.capitalize()} ROC Curves')
+        plt.legend()
+        
+        # Log to tensorboard
+        self.logger.log_figure(f'{prefix}/roc_curves', plt.gcf(), step)
+        plt.close()
+        
+    def _log_pr_curves(self, outputs: torch.Tensor, masks: torch.Tensor, 
+                      step: int, prefix: str = 'train'):
+        """Log precision-recall curves for each class."""
+        # Convert to probabilities
+        probs = torch.softmax(outputs, dim=1)
+        
+        plt.figure(figsize=(10, 8))
+        
+        # Calculate PR curve for each class
+        for class_idx in range(Config.NUM_CLASSES):
+            class_probs = probs[:, class_idx].cpu().numpy().flatten()
+            class_true = (masks == class_idx).cpu().numpy().flatten()
+            
+            precision, recall, _ = skmetrics.precision_recall_curve(class_true, class_probs)
+            ap = skmetrics.average_precision_score(class_true, class_probs)
+            
+            plt.plot(recall, precision, label=f'Class {class_idx} (AP = {ap:.2f})')
+        
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title(f'{prefix.capitalize()} Precision-Recall Curves')
+        plt.legend()
+        
+        # Log to tensorboard
+        self.logger.log_figure(f'{prefix}/pr_curves', plt.gcf(), step)
+        plt.close()
+
     def train_epoch(self, dataloader, optimizer, epoch):
         """Train for one epoch."""
         self.model.train()
@@ -147,25 +253,42 @@ class SegmentationTrainer:
             with torch.no_grad():
                 metrics = self.calculate_metrics(outputs.detach(), masks)
                 
-                # Log to tensorboard
-                step = epoch * len(dataloader) + batch_idx
-                self.logger.log_scalar('train/loss', loss.item(), step)
-                self.logger.log_scalar('train/iou', metrics['iou'], step)
-                self.logger.log_scalar('train/accuracy', metrics['accuracy'], step)
+                # Log to tensorboard - Use global step
+                global_step = (epoch - 1) * len(dataloader) + batch_idx
+                
+                # Log scalar metrics directly
+                self.logger.log_scalar('train/loss', loss.item(), global_step)
+                self.logger.log_scalar('train/iou', metrics['iou'], global_step)
+                self.logger.log_scalar('train/accuracy', metrics['accuracy'], global_step)
                 
                 # Log learning rate
                 current_lr = optimizer.param_groups[0]['lr']
-                self.logger.log_scalar('train/learning_rate', current_lr, step)
+                self.logger.log_scalar('train/learning_rate', current_lr, global_step)
                 
                 # Log sample predictions periodically
                 if batch_idx % Config.LOG_INTERVAL == 0:
-                    self._log_predictions(images[0], masks[0], outputs[0], step, prefix='train')
+                    self._log_predictions(images[0], masks[0], outputs[0], global_step, prefix='train')
                 
                 pbar.set_postfix({
                     'loss': f'{loss.item():.4f}',
                     'iou': f'{metrics["iou"]:.4f}',
                     'acc': f'{metrics["accuracy"]:.4f}'
                 })
+                
+                # Log advanced metrics periodically
+                if batch_idx % Config.LOG_INTERVAL == 0:
+                    with torch.no_grad():
+                        self._log_confusion_matrix(outputs, masks, global_step, prefix='train')
+                        self._log_roc_curves(outputs, masks, global_step, prefix='train')
+                        self._log_pr_curves(outputs, masks, global_step, prefix='train')
+                        
+                        # Log per-class IoU
+                        for class_idx in range(Config.NUM_CLASSES):
+                            self.logger.log_scalar(
+                                f'train/iou_class_{class_idx}',
+                                metrics[f'iou_class_{class_idx}'],
+                                global_step
+                            )
             
         return total_loss / len(dataloader)
         
@@ -189,7 +312,21 @@ class SegmentationTrainer:
                 
                 # Log sample predictions periodically
                 if batch_idx % Config.LOG_INTERVAL == 0:
-                    self._log_predictions(images[0], masks[0], outputs[0], batch_idx, prefix='val')
+                    self._log_predictions(images[0], masks[0], outputs[0], self.current_epoch, prefix='val')
+                
+                # Log advanced metrics periodically
+                if batch_idx % Config.LOG_INTERVAL == 0:
+                    self._log_confusion_matrix(outputs, masks, self.current_epoch, prefix='val')
+                    self._log_roc_curves(outputs, masks, self.current_epoch, prefix='val')
+                    self._log_pr_curves(outputs, masks, self.current_epoch, prefix='val')
+                    
+                    # Log per-class IoU
+                    for class_idx in range(Config.NUM_CLASSES):
+                        self.logger.log_scalar(
+                            f'val/iou_class_{class_idx}',
+                            metrics[f'iou_class_{class_idx}'],
+                            self.current_epoch
+                        )
             
             # Calculate average metrics
             avg_metrics = {
@@ -198,8 +335,9 @@ class SegmentationTrainer:
                 'accuracy': np.mean([m['accuracy'] for m in all_metrics])
             }
             
-            # Log validation metrics
-            self.logger.log_scalars('val', avg_metrics, self.current_epoch)
+            # Log validation metrics directly
+            for metric_name, value in avg_metrics.items():
+                self.logger.log_scalar(f'val/{metric_name}', value, self.current_epoch)
             
         return avg_metrics
         
@@ -208,13 +346,18 @@ class SegmentationTrainer:
         # Convert output to prediction mask
         pred_mask = output.argmax(dim=0).cpu()
         
+        # Convert tensors to float32 for visualization
+        image = image.float().cpu()
+        mask = mask.float().cpu()
+        pred_mask = pred_mask.float()
+        
         # Create visualization grid
-        self.logger.log_image(f'{prefix}/image', image.cpu(), step)
-        self.logger.log_image(f'{prefix}/ground_truth', mask.cpu(), step)
+        self.logger.log_image(f'{prefix}/image', image, step)
+        self.logger.log_image(f'{prefix}/ground_truth', mask, step)
         self.logger.log_image(f'{prefix}/prediction', pred_mask, step)
         
-        # Create overlay visualization
-        overlay = utils.create_overlay(image.cpu(), pred_mask)
+        # Create overlay visualization using our custom utils
+        overlay = viz_utils.create_overlay(image, pred_mask)
         self.logger.log_image(f'{prefix}/overlay', overlay, step)
         
     def train(self, train_dataloader, valid_dataloader, epochs, learning_rate, patience=7):

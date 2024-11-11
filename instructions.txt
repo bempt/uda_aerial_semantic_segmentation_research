@@ -6,3 +6,25 @@ Verify that the step that you were working on has been entirely completed (Imple
 ---
 Continue with the next logical 1 step in the project development (Training Loop Integration Add Tensorboard logging to SegmentationTrainer Log training metrics (loss, accuracy, IoU) Log validation metrics Log learning rate changes Log sample predictions and ground truth).
 ---
+Fix Config class missing LOG_INTERVAL attribute causing test_system.py to fail
+---
+Fix tensor type error in training loop visualization
+---
+Continue with the next logical 1 step in the project development (Phase-Specific Metrics: Add per-class IoU logging Add confusion matrix visualization Add precision-recall curves Add ROC curves for each class).
+---
+Add seaborn to requirements.txt for confusion matrix visualization
+---
+Fix missing create_overlay function in utils causing test_system.py to fail
+---
+Fix tensor type error in training loop visualization
+---
+Add visualization utils module with create_overlay function
+---
+Update test_system.py to properly verify Tensorboard logs
+---
+Fix Tensorboard tag verification in test_system.py
+---
+Improve Tensorboard event file handling in test verification
+---
+Fix scalar metric logging in training loop
+---

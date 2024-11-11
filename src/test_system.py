@@ -4,6 +4,7 @@ import segmentation_models_pytorch as smp
 from torch.utils.data import DataLoader, random_split
 from pathlib import Path
 import numpy as np
+import time
 
 from src.data.dataset import DroneDataset
 from src.data.target_dataset import TargetDataset
@@ -159,6 +160,10 @@ def test_system():
         assert hasattr(trainer, 'logger'), "Trainer should have tensorboard logger"
         assert isinstance(trainer.logger, TensorboardLogger), "Logger should be TensorboardLogger instance"
         
+        # Verify per-class metrics initialization
+        assert hasattr(trainer, 'per_class_iou_metrics'), "Trainer should have per-class IoU metrics"
+        assert len(trainer.per_class_iou_metrics) == Config.NUM_CLASSES, "Should have IoU metric for each class"
+        
         # Run a mini training session (2 epochs)
         trainer.train(
             train_dataloader=train_loader,
@@ -172,6 +177,65 @@ def test_system():
         log_dir = Path(Config.LOGS_DIR)
         assert log_dir.exists(), "Log directory should exist"
         assert any(log_dir.iterdir()), "Log directory should contain files"
+        
+        # Wait a moment for event files to be written
+        time.sleep(1)
+        
+        # Find the most recent event file
+        event_files = sorted(log_dir.rglob('events.out.tfevents.*'), key=lambda x: x.stat().st_mtime)
+        assert len(event_files) > 0, "No tensorboard event files found"
+        latest_event_file = event_files[-1]
+        
+        # Read the event file to verify metrics are logged
+        from tensorboard.backend.event_processing import event_accumulator
+        ea = event_accumulator.EventAccumulator(
+            str(latest_event_file),
+            size_guidance={  # Increase size limits
+                event_accumulator.SCALARS: 1000,
+                event_accumulator.IMAGES: 100,
+                event_accumulator.HISTOGRAMS: 1,
+            }
+        )
+        ea.Reload()
+        
+        # Get all available tags
+        available_tags = ea.Tags()
+        
+        # Define required tags
+        required_metrics = [
+            'train/loss',
+            'train/iou',
+            'train/accuracy',
+            'train/learning_rate',
+            'val/loss',
+            'val/iou',
+            'val/accuracy'
+        ]
+        
+        # Get all available scalar tags
+        scalar_tags = set(available_tags.get('scalars', []))
+        print("\nAvailable scalar tags:", scalar_tags)
+        
+        for metric in required_metrics:
+            assert any(metric in tag for tag in scalar_tags), f"Missing {metric} in logged data"
+        
+        # Define required visualizations
+        required_visualizations = [
+            'train/image',
+            'train/ground_truth',
+            'train/prediction',
+            'train/overlay',
+            'train/confusion_matrix',
+            'train/roc_curves',
+            'train/pr_curves'
+        ]
+        
+        # Get all available image tags
+        image_tags = set(available_tags.get('images', []))
+        print("\nAvailable image tags:", image_tags)
+        
+        for vis in required_visualizations:
+            assert any(vis in tag for tag in image_tags), f"Missing {vis} visualization"
         
         print("✓ Training loop and logging completed successfully")
         
