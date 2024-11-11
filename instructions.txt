@@ -1,34 +1,8 @@
-@Segmentation Models PyTorch  Look through the code in this project and tell me which elements have not been completed yet. Do not write any code yet.
+@Segmentation Models PyTorch  Look through the code in this project and tell me which elements have not been completed yet. Order them logically in order of recommended completion using machine learning and engineering best practices. Do not write any code yet.
 ---
-Continue with the next 1 step. Remember to change the test_system in lockstep.
+Continue with the next logical 1 step in the project development. The test_system is currently functioning properly, so you may add functionality but must not remove functionality without asking for the user's explicit permission. Remember to change the test_system in lockstep with any changes to the system.
 ---
-Fix Config class missing MODEL_NAME attribute causing test_system.py to fail
+Verify that the step that you were working on has been entirely completed (Implement proper Tensorboard integration for all phases). If there is additional work to be completed to finish the step, order the actions logically in order of recommended completing using machine learning and engineering best practices. Do not write any code yet.
 ---
-Fix Config class missing NUM_EPOCHS attribute causing test_system.py to fail
----
-Add get_strong_augmentation function to augmentation.py for Phase 3 testing
----
-Fix numpy version conflict with imgaug by adding version constraint
----
-Add ConsistencyLoss class to losses.py for Phase 3 testing
----
-Create setup_test_data.py for test data preparation
----
-Update augmentation.py to use current albumentations transforms
----
-Update DroneDataset to properly use albumentations transforms
----
-Update TargetDataset to properly use albumentations transforms
----
-Add resizing to TargetDataset to handle different image sizes
----
-Fix mask tensor type in DroneDataset
----
-Fix augmentation parameters and return types
----
-Update test_system.py to properly test augmentations
----
-Add get_confusion_metrics to DomainAdaptationMetrics
----
-Add update method to DomainAdaptationMetrics
+Continue with the next logical 1 step in the project development (Training Loop Integration Add Tensorboard logging to SegmentationTrainer Log training metrics (loss, accuracy, IoU) Log validation metrics Log learning rate changes Log sample predictions and ground truth).
 ---

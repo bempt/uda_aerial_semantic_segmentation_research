@@ -17,6 +17,7 @@ from src.data.prepare_holyrood import prepare_holyrood_dataset
 from src.models.adversarial_trainer import AdversarialTrainer
 from src.models.phase_manager import PhaseManager, TrainingPhase
 from src.data.setup_test_data import setup_test_data
+from src.visualization.tensorboard_logger import TensorboardLogger
 
 def test_system():
     print("Starting system test...")
@@ -107,6 +108,45 @@ def test_system():
         print(f"✗ Dice Loss test failed: {str(e)}")
         return False
 
+    # 2c. Test Tensorboard Logger
+    print("\n2c. Testing Tensorboard Logger...")
+    try:
+        from src.visualization.tensorboard_logger import TensorboardLogger
+        import matplotlib.pyplot as plt
+        
+        # Initialize logger
+        logger = TensorboardLogger(log_dir="test_logs")
+        
+        # Test scalar logging
+        logger.log_scalar("test/loss", 0.5, 1)
+        
+        # Test multiple scalars
+        metrics = {"accuracy": 0.85, "precision": 0.78}
+        logger.log_scalars("test/metrics", metrics, 1)
+        
+        # Test image logging
+        sample_image = torch.rand(3, 64, 64)
+        logger.log_image("test/image", sample_image, 1)
+        
+        # Test figure logging
+        fig, ax = plt.subplots()
+        ax.plot([1, 2, 3], [1, 2, 3])
+        logger.log_figure("test/figure", fig, 1)
+        
+        # Test histogram logging
+        values = torch.randn(1000)
+        logger.log_histogram("test/histogram", values, 1)
+        
+        # Test model graph logging
+        logger.log_model_graph(model)
+        
+        logger.close()
+        print("✓ Tensorboard Logger tested successfully")
+        
+    except Exception as e:
+        print(f"✗ Tensorboard Logger test failed: {str(e)}")
+        return False
+
     # 3. Test training loop
     print("\n3. Testing training loop...")
     try:
@@ -114,6 +154,10 @@ def test_system():
             model=model,
             device=Config.DEVICE
         )
+        
+        # Verify logger initialization
+        assert hasattr(trainer, 'logger'), "Trainer should have tensorboard logger"
+        assert isinstance(trainer.logger, TensorboardLogger), "Logger should be TensorboardLogger instance"
         
         # Run a mini training session (2 epochs)
         trainer.train(
@@ -123,7 +167,13 @@ def test_system():
             learning_rate=Config.LEARNING_RATE,
             patience=Config.PATIENCE
         )
-        print("✓ Training loop completed successfully")
+        
+        # Verify log directory exists and contains files
+        log_dir = Path(Config.LOGS_DIR)
+        assert log_dir.exists(), "Log directory should exist"
+        assert any(log_dir.iterdir()), "Log directory should contain files"
+        
+        print("✓ Training loop and logging completed successfully")
         
     except Exception as e:
         print(f"✗ Training loop failed: {str(e)}")
