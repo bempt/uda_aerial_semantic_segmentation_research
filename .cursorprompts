@@ -78,7 +78,7 @@ Metrics & Validation Requirements:
 
 STEP VERIFICATION:
 
-- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt ) and tell me which elements have not been completed for this step ().
+- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and tell me which elements have not been completed for this step, only including the critical elements ().
 
 - Do not write any code yet.
 
@@ -98,3 +98,21 @@ CODE:
 
 - @test_system.py  is currently functioning properly, so you may add functionality but must not remove functionality without asking for the user's explicit permission.
 - Remember to change test_system.py in lockstep with any changes to the system.
+
+
+
+
+---
+
+
+
+
+DEBUG:
+
+- We are working on this step in the project development ().
+
+- You may add functionality but must not remove functionality from @test_system.py without asking for the user's explicit permission.
+- Remember to change test_system.py in lockstep with any changes to the system.
+
+Error:
+

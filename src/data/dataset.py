@@ -41,13 +41,13 @@ class DroneDataset(Dataset):
         
         # Calculate class statistics if balancing enabled
         if balance_classes:
+            print("Calculating class statistics...")
             self.class_stats = self._calculate_class_stats()
             self.sample_weights = self._calculate_sample_weights()
     
     def _calculate_class_stats(self) -> Dict[int, int]:
         """Calculate pixel counts per class"""
         class_counts = {}
-        print("Calculating class statistics...")
         
         for mask_name in tqdm(self.masks, desc="Processing masks"):
             mask_path = os.path.join(self.masks_dir, mask_name)
@@ -82,14 +82,31 @@ class DroneDataset(Dataset):
             
         return weights / weights.sum()
     
-    def get_sampler(self) -> WeightedRandomSampler:
-        """Get weighted sampler for balanced sampling"""
+    def get_sampler(self, indices=None) -> WeightedRandomSampler:
+        """
+        Get weighted sampler for balanced sampling.
+        
+        Args:
+            indices: Optional indices for subset sampling (for split datasets)
+            
+        Returns:
+            WeightedRandomSampler instance or None
+        """
         if not self.balance_classes:
             return None
             
+        if indices is not None:
+            # Use only the weights for the specified indices
+            weights = self.sample_weights[indices]
+        else:
+            weights = self.sample_weights
+            
+        # Normalize weights
+        weights = weights / weights.sum()
+            
         return WeightedRandomSampler(
-            weights=self.sample_weights,
-            num_samples=len(self),
+            weights=weights,
+            num_samples=len(weights),
             replacement=True
         )
     

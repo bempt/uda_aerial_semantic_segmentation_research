@@ -3,10 +3,8 @@ import torch.nn as nn
 from tqdm import tqdm
 from .train import SegmentationTrainer
 from .discriminator import DomainDiscriminator
-from .losses import AdversarialLoss, WeightedSegmentationLoss, calculate_class_weights
+from .losses import AdversarialLoss
 from .metrics import DomainAdaptationMetrics
-from src.data.domain_balanced_loader import DomainBalancedDataLoader
-from src.models.config import Config
 
 class AdversarialTrainer(SegmentationTrainer):
     def __init__(self, model, device, lambda_adv=0.001):
@@ -23,36 +21,6 @@ class AdversarialTrainer(SegmentationTrainer):
         self.adversarial_loss = AdversarialLoss(lambda_adv)
         self.discriminator_optimizer = None
         self.domain_metrics = DomainAdaptationMetrics()
-        
-        # Initialize domain weights
-        self.source_domain_weight = 1.0
-        self.target_domain_weight = 1.0
-        
-    def _initialize_weighted_loss(self, source_dataset):
-        """Initialize weighted segmentation loss with class weights"""
-        class_weights = calculate_class_weights(
-            source_dataset,
-            num_classes=Config.NUM_CLASSES,
-            method='effective_samples'
-        )
-        self.weighted_loss = WeightedSegmentationLoss(
-            num_classes=Config.NUM_CLASSES,
-            class_weights=class_weights
-        ).to(self.device)
-        
-    def _update_domain_weights(self, metrics):
-        """Update domain weights based on training progress"""
-        source_acc = float(metrics['source_domain_acc'])
-        target_acc = float(metrics['target_domain_acc'])
-        
-        # Increase target weight if source accuracy is high
-        if source_acc > 0.8:
-            self.target_domain_weight = min(2.0, self.target_domain_weight * 1.1)
-            self.source_domain_weight = max(0.5, self.source_domain_weight * 0.9)
-            
-        # Log updated weights
-        self.logger.log_scalar('domain_weights/source', self.source_domain_weight, self.current_step)
-        self.logger.log_scalar('domain_weights/target', self.target_domain_weight, self.current_step)
         
     def calculate_iou(self, pred, target):
         """
@@ -134,11 +102,7 @@ class AdversarialTrainer(SegmentationTrainer):
             
             # Segmentation loss on source domain
             source_seg_pred = self.model(source_images)
-            seg_loss = self.weighted_loss(
-                source_seg_pred,
-                source_masks,
-                domain_weight=self.source_domain_weight
-            )
+            seg_loss = self.criterion(source_seg_pred, source_masks)
             
             # Adversarial loss on target domain
             target_domain_pred = self.discriminator(target_images)
@@ -211,104 +175,37 @@ class AdversarialTrainer(SegmentationTrainer):
         
         return avg_loss, metrics
     
-    def train(
-        self,
-        source_dataloader,
-        target_dataloader,
-        valid_dataloader,
-        epochs,
-        learning_rate,
-        patience=7
-    ):
-        """Train with domain adaptation"""
-        # Initialize weighted loss
-        self._initialize_weighted_loss(source_dataloader.dataset)
+    def train(self, source_dataloader, target_dataloader, valid_dataloader, 
+              epochs, learning_rate, patience=3):
+        """
+        Train the model with domain adaptation.
         
-        # Create balanced dataloader
-        balanced_loader = DomainBalancedDataLoader(
-            source_dataset=source_dataloader.dataset,
-            target_dataset=target_dataloader.dataset,
-            batch_size=Config.BATCH_SIZE,
-            num_workers=Config.NUM_WORKERS
-        )
-        
+        Args:
+            source_dataloader: DataLoader for source domain (with labels)
+            target_dataloader: DataLoader for target domain (no labels)
+            valid_dataloader: DataLoader for validation
+            epochs: Number of epochs to train
+            learning_rate: Learning rate
+            patience: Early stopping patience
+        """
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        self.discriminator_optimizer = torch.optim.Adam(
-            self.discriminator.parameters(),
-            lr=learning_rate
-        )
         
         best_valid_loss = float('inf')
         patience_counter = 0
-        self.current_step = 0
         
         for epoch in range(1, epochs + 1):
-            self.model.train()
-            self.discriminator.train()
-            
-            # Training loop with balanced batches
-            for batch_idx, (images, masks) in enumerate(balanced_loader):
-                # Split batch into source and target
-                batch_size = images.size(0)
-                split_idx = batch_size // 2
-                
-                source_images = images[:split_idx].to(self.device)
-                source_masks = masks[:split_idx].to(self.device)
-                target_images = images[split_idx:].to(self.device)
-                
-                # Train discriminator
-                self.discriminator_optimizer.zero_grad()
-                
-                source_domain_pred = self.discriminator(source_images)
-                target_domain_pred = self.discriminator(target_images)
-                
-                d_loss = self.adversarial_loss.discriminator_loss(
-                    source_domain_pred,
-                    target_domain_pred
-                )
-                d_loss.backward()
-                self.discriminator_optimizer.step()
-                
-                # Train segmentation model
-                optimizer.zero_grad()
-                
-                # Segmentation loss on source domain
-                source_seg_pred = self.model(source_images)
-                seg_loss = self.weighted_loss(
-                    source_seg_pred,
-                    source_masks,
-                    domain_weight=self.source_domain_weight
-                )
-                
-                # Adversarial loss on target domain
-                target_domain_pred = self.discriminator(target_images)
-                adv_loss = self.adversarial_loss.generator_loss(target_domain_pred)
-                
-                # Combined loss
-                total_loss = seg_loss + adv_loss
-                total_loss.backward()
-                optimizer.step()
-                
-                # Update metrics
-                self.domain_metrics.update(source_domain_pred, target_domain_pred)
-                metrics = self.domain_metrics.get_metrics()
-                
-                # Update domain weights
-                self._update_domain_weights(metrics)
-                
-                # Log metrics
-                self._log_training_step(
-                    seg_loss.item(),
-                    d_loss.item(),
-                    adv_loss.item(),
-                    metrics,
-                    self.current_step
-                )
-                
-                self.current_step += 1
-            
-            # Validation
+            train_loss, domain_metrics = self.train_epoch(
+                source_dataloader, 
+                target_dataloader, 
+                optimizer, 
+                epoch
+            )
             valid_loss, valid_metrics = self.validate(valid_dataloader)
+            
+            print(f'Train Loss: {train_loss:.4f}')
+            print(f'Valid Loss: {valid_loss:.4f}')
+            print(f'Valid Metrics: {valid_metrics}')
+            print(f'Domain Metrics: {domain_metrics}')
             
             # Early stopping
             if valid_loss < best_valid_loss:
@@ -317,43 +214,5 @@ class AdversarialTrainer(SegmentationTrainer):
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
-                    print(f"Early stopping triggered after {epoch} epochs")
+                    print(f'Early stopping after {epoch} epochs')
                     break
-                    
-        # Close logger
-        self.logger.close()
-
-    def _log_training_step(
-        self,
-        seg_loss: float,
-        d_loss: float,
-        adv_loss: float,
-        metrics: dict,
-        step: int
-    ):
-        """
-        Log training metrics for current step.
-        
-        Args:
-            seg_loss: Segmentation loss value
-            d_loss: Discriminator loss value
-            adv_loss: Adversarial loss value
-            metrics: Dictionary of domain adaptation metrics
-            step: Current training step
-        """
-        # Log losses
-        self.logger.log_scalar('train/segmentation_loss', seg_loss, step)
-        self.logger.log_scalar('train/discriminator_loss', d_loss, step)
-        self.logger.log_scalar('train/adversarial_loss', adv_loss, step)
-        
-        # Log domain adaptation metrics
-        for metric_name, value in metrics.items():
-            try:
-                value = float(value)  # Convert string metrics to float
-                self.logger.log_scalar(f'train/{metric_name}', value, step)
-            except (ValueError, TypeError):
-                continue  # Skip metrics that can't be converted to float
-        
-        # Log total loss
-        total_loss = seg_loss + adv_loss
-        self.logger.log_scalar('train/total_loss', total_loss, step)
