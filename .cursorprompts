@@ -1,0 +1,100 @@
+PROJECT VERIFICATION:
+
+Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and tell me which elements have not been completed yet. Do not write any code yet.
+
+---
+
+Architecture Implementation:
+  - PyTorch
+  - Able to import Github repo (PC running Ubuntu 22.04) to Google Colab and have Jupyter Notebooks run without issues
+  - Multi-phase UDA aerial semantic segmentation model
+  - Multi-class semantic segmentation
+  - ResNet50 encoder (all phases)
+  - UNet decoder (all phases)
+  - Tensorboard integration
+  - Copies of model for each run saved with logs for further training, testing, and ablation studies.
+  - Auto-stopping to prevent over-training.
+
+Phase 1 (Semantic Segmentation) Requirements:
+  - Basic semantic segmentation training implementation
+  - Dice loss implementation
+  - Proper encoder-decoder connection
+  - ImageNet pre-training
+
+Phase 2 (Supervised Adversarial) Requirements:
+  - Domain discriminator integration
+  - Domain classification loss
+  - Segmentation loss
+  - Cross-entropy loss
+  - Proper adversarial training loop
+
+Phase 3 (Unsupervised Fine-tuning) Requirements:
+  - Random augmentation implementation
+  - Transformation implementation
+  - Consistency loss implementation
+  - Domain confusion loss implementation
+  - Fine-tuning loss implementation
+
+Dataset Requirements:
+  - Source dataset: Semantic Drone Dataset (aerial semantic segmentation)
+  - Target dataset: Holyrood (unlabeled aerial dataset)
+  - Data loading and pre-processing pipeline
+  - Domain shift handling
+
+Results Requirements:
+  - Charts:
+    - Visual comparisons (original vs ground truth vs generated)
+    - Class distribution visualizations
+    - Confusion matrices
+    - Performance metrics plots
+  - Tables:
+    - Inference time measurements
+    - Ablation study results
+    - Comparative benchmarking (if applicable)
+  - Metrics:
+    - IoU per class
+    - mIoU
+    - Pixel accuracy
+    - Domain classification accuracy
+    - Model performance across datasets
+
+Metrics & Validation Requirements:
+  - Performance metrics tracking
+  - Dice score tracking
+  - Mean accuracy tracking
+  - Pixel accuracy tracking
+  - mIoU tracking
+  - Domain classification accuracy tracking
+  - Tensorboard logging for all phases
+  - Visual results comparison
+  - Domain adaptation effectiveness measurement
+
+
+
+---
+
+
+
+
+STEP VERIFICATION:
+
+- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt ) and tell me which elements have not been completed for this step ().
+
+- Do not write any code yet.
+
+
+
+
+
+---
+
+
+
+
+
+CODE:
+
+- Continue with the next logical 1 step in the project development ().
+
+- @test_system.py  is currently functioning properly, so you may add functionality but must not remove functionality without asking for the user's explicit permission.
+- Remember to change test_system.py in lockstep with any changes to the system.

@@ -4,21 +4,26 @@ import os
 import cv2
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, WeightedRandomSampler
+from typing import Dict
+from tqdm.auto import tqdm
 
 class DroneDataset(Dataset):
-    def __init__(self, images_dir, masks_dir, transform=None):
+    def __init__(self, images_dir, masks_dir, transform=None, balance_classes=True):
         """
-        Dataset for semantic segmentation.
+        Dataset for semantic segmentation with class balancing.
         
         Args:
             images_dir (str): Directory with input images
             masks_dir (str): Directory with segmentation masks
             transform (callable, optional): Optional transform to be applied
+            balance_classes (bool): Whether to use class balancing
         """
+        super().__init__()
         self.images_dir = images_dir
         self.masks_dir = masks_dir
         self.transform = transform
+        self.balance_classes = balance_classes
         
         # Get sorted lists of files
         self.images = sorted([f for f in os.listdir(images_dir) if f.endswith(('.jpg', '.png'))])
@@ -33,6 +38,60 @@ class DroneDataset(Dataset):
         # Verify matching pairs
         assert len(self.images) == len(self.masks), \
             f"Number of images ({len(self.images)}) != number of masks ({len(self.masks)})"
+        
+        # Calculate class statistics if balancing enabled
+        if balance_classes:
+            self.class_stats = self._calculate_class_stats()
+            self.sample_weights = self._calculate_sample_weights()
+    
+    def _calculate_class_stats(self) -> Dict[int, int]:
+        """Calculate pixel counts per class"""
+        class_counts = {}
+        print("Calculating class statistics...")
+        
+        for mask_name in tqdm(self.masks, desc="Processing masks"):
+            mask_path = os.path.join(self.masks_dir, mask_name)
+            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+            
+            unique, counts = np.unique(mask, return_counts=True)
+            for class_idx, count in zip(unique, counts):
+                if class_idx not in class_counts:
+                    class_counts[class_idx] = 0
+                class_counts[class_idx] += count
+                
+        return class_counts
+    
+    def _calculate_sample_weights(self) -> np.ndarray:
+        """Calculate sample weights for balanced sampling"""
+        weights = np.zeros(len(self))
+        
+        for idx, mask_name in enumerate(self.masks):
+            mask_path = os.path.join(self.masks_dir, mask_name)
+            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+            
+            # Count pixels per class in this sample
+            unique, counts = np.unique(mask, return_counts=True)
+            
+            # Calculate weight as inverse of class frequencies
+            sample_weight = 0
+            for class_idx, count in zip(unique, counts):
+                class_freq = self.class_stats[class_idx] / sum(self.class_stats.values())
+                sample_weight += (count / mask.size) * (1 / class_freq)
+                
+            weights[idx] = sample_weight
+            
+        return weights / weights.sum()
+    
+    def get_sampler(self) -> WeightedRandomSampler:
+        """Get weighted sampler for balanced sampling"""
+        if not self.balance_classes:
+            return None
+            
+        return WeightedRandomSampler(
+            weights=self.sample_weights,
+            num_samples=len(self),
+            replacement=True
+        )
     
     def __len__(self):
         return len(self.images)

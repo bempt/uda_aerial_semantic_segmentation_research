@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional, Dict
+import numpy as np
 
 class AdversarialLoss:
     def __init__(self, lambda_adv=0.001):
@@ -141,3 +143,105 @@ class DiceLoss(nn.Module):
         
         # Average over classes and batch
         return 1.0 - dice.mean()
+
+class WeightedSegmentationLoss(nn.Module):
+    """
+    Weighted segmentation loss that handles class imbalance
+    """
+    def __init__(
+        self,
+        num_classes: int,
+        class_weights: Optional[torch.Tensor] = None,
+        alpha: float = 0.25,  # For focal loss component
+        gamma: float = 2.0,   # For focal loss component
+        reduction: str = 'mean'
+    ):
+        super().__init__()
+        self.num_classes = num_classes
+        self.register_buffer('class_weights', 
+                           class_weights if class_weights is not None 
+                           else torch.ones(num_classes))
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.dice_loss = DiceLoss()
+        
+    def focal_loss(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Compute focal loss component
+        """
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none', 
+                                weight=self.class_weights)
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1-pt)**self.gamma * ce_loss
+        
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        return focal_loss.sum()
+        
+    def forward(
+        self, 
+        inputs: torch.Tensor, 
+        targets: torch.Tensor,
+        domain_weight: float = 1.0
+    ) -> torch.Tensor:
+        """
+        Compute weighted loss combining focal and dice loss
+        
+        Args:
+            inputs: Model predictions (B, C, H, W)
+            targets: Ground truth labels (B, H, W)
+            domain_weight: Weight for this domain's samples
+            
+        Returns:
+            Combined weighted loss
+        """
+        # Convert targets to one-hot
+        targets_one_hot = F.one_hot(targets, num_classes=self.num_classes)
+        targets_one_hot = targets_one_hot.permute(0, 3, 1, 2).float()
+        
+        # Compute losses
+        focal = self.focal_loss(inputs, targets)
+        dice = self.dice_loss(inputs, targets_one_hot)
+        
+        # Combine losses with domain weight
+        return domain_weight * (focal + dice)
+
+def calculate_class_weights(
+    dataset,
+    num_classes: int,
+    method: str = 'effective_samples'
+) -> torch.Tensor:
+    """
+    Calculate class weights based on class frequencies
+    
+    Args:
+        dataset: Dataset to analyze
+        num_classes: Number of classes
+        method: Weighting method ('effective_samples' or 'inverse_freq')
+        
+    Returns:
+        Tensor of class weights
+    """
+    # Count pixels per class
+    class_counts = torch.zeros(num_classes)
+    for _, mask in dataset:
+        for class_idx in range(num_classes):
+            class_counts[class_idx] += (mask == class_idx).sum().item()
+            
+    # Avoid division by zero
+    class_counts = torch.clamp(class_counts, min=1.0)
+    
+    if method == 'effective_samples':
+        # Effective number of samples weighting
+        beta = 0.9999
+        effective_num = 1.0 - torch.pow(beta, class_counts)
+        weights = (1.0 - beta) / effective_num
+    else:
+        # Inverse frequency weighting
+        weights = 1.0 / class_counts
+        
+    # Normalize weights
+    weights = weights / weights.sum() * num_classes
+    
+    return weights

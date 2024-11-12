@@ -13,12 +13,13 @@ from src.models.predict import predict_mask
 from src.models.augmentation import get_training_augmentation, get_strong_augmentation
 from src.models.config import Config
 from src.models.discriminator import DomainDiscriminator
-from src.models.losses import AdversarialLoss, ConsistencyLoss, DiceLoss
+from src.models.losses import AdversarialLoss, ConsistencyLoss, DiceLoss, WeightedSegmentationLoss, calculate_class_weights
 from src.data.prepare_holyrood import prepare_holyrood_dataset
 from src.models.adversarial_trainer import AdversarialTrainer
 from src.models.phase_manager import PhaseManager, TrainingPhase
 from src.data.setup_test_data import setup_test_data
 from src.visualization.tensorboard_logger import TensorboardLogger
+from src.data.domain_balanced_loader import DomainBalancedDataLoader
 
 def test_system():
     print("Starting system test...")
@@ -107,6 +108,65 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Dice Loss test failed: {str(e)}")
+        return False
+
+    # 2c. Test Weighted Segmentation Loss
+    print("\n2c. Testing Weighted Segmentation Loss...")
+    try:
+        # Create dummy dataset for weight calculation
+        dummy_dataset = DroneDataset(
+            images_dir=os.path.join(Config.SAMPLE_DATA_DIR, 'original_images'),
+            masks_dir=os.path.join(Config.SAMPLE_DATA_DIR, 'label_images_semantic'),
+            transform=None,
+            balance_classes=True
+        )
+        
+        # Calculate class weights
+        class_weights = calculate_class_weights(
+            dummy_dataset,
+            num_classes=Config.NUM_CLASSES
+        )
+        
+        # Create weighted loss
+        weighted_loss = WeightedSegmentationLoss(
+            num_classes=Config.NUM_CLASSES,
+            class_weights=class_weights
+        )
+        
+        # Test with dummy data
+        batch_size = 4
+        predictions = torch.randn(batch_size, Config.NUM_CLASSES, 256, 256)
+        targets = torch.randint(0, Config.NUM_CLASSES, (batch_size, 256, 256))
+        
+        # Calculate loss
+        loss = weighted_loss(predictions, targets)
+        
+        # Verify loss properties
+        assert isinstance(loss, torch.Tensor), "Loss should be a tensor"
+        assert loss.shape == torch.Size([]), "Loss should be a scalar"
+        assert loss >= 0, "Loss should be non-negative"
+        
+        # Test dataset sampling
+        sampler = dummy_dataset.get_sampler()
+        assert sampler is not None, "Sampler should be created when balance_classes=True"
+        
+        # Create balanced dataloader
+        balanced_loader = DataLoader(
+            dummy_dataset,
+            batch_size=Config.BATCH_SIZE,
+            sampler=sampler,
+            num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
+        )
+        
+        # Verify dataloader works
+        sample_batch = next(iter(balanced_loader))
+        assert len(sample_batch) == 2, "Batch should contain images and masks"
+        
+        print("✓ Weighted Segmentation Loss and balanced sampling tested successfully")
+        print(f"Sample weighted loss: {loss.item():.4f}")
+        
+    except Exception as e:
+        print(f"✗ Weighted Segmentation Loss test failed: {str(e)}")
         return False
 
     # 2c. Test Tensorboard Logger
@@ -383,7 +443,8 @@ def test_system():
         source_dataset = DroneDataset(
             images_dir=os.path.join(Config.SAMPLE_DATA_DIR, 'original_images'),
             masks_dir=os.path.join(Config.SAMPLE_DATA_DIR, 'label_images_semantic'),
-            transform=get_training_augmentation()
+            transform=get_training_augmentation(),
+            balance_classes=True  # Enable class balancing
         )
         
         target_dataset = TargetDataset(
@@ -391,25 +452,23 @@ def test_system():
             transform=get_training_augmentation()
         )
         
-        # Create dataloaders
-        source_loader = DataLoader(
-            source_dataset,
+        # Create balanced dataloader
+        balanced_loader = DomainBalancedDataLoader(
+            source_dataset=source_dataset,
+            target_dataset=target_dataset,
             batch_size=Config.BATCH_SIZE,
-            shuffle=True,
             num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
         )
         
-        target_loader = DataLoader(
-            target_dataset,
-            batch_size=Config.BATCH_SIZE,
-            shuffle=True,
-            num_workers=Config.NUM_WORKERS if torch.cuda.is_available() else 0
-        )
+        # Verify balanced loader
+        sample_batch = next(iter(balanced_loader))
+        assert len(sample_batch) == 2, "Batch should contain images and masks"
+        assert len(sample_batch[0]) == Config.BATCH_SIZE, "Wrong batch size"
         
         # Run a mini training session
         adv_trainer.train(
-            source_dataloader=source_loader,
-            target_dataloader=target_loader,
+            source_dataloader=DataLoader(source_dataset, batch_size=Config.BATCH_SIZE),
+            target_dataloader=DataLoader(target_dataset, batch_size=Config.BATCH_SIZE),
             valid_dataloader=val_loader,
             epochs=2,
             learning_rate=Config.LEARNING_RATE,
@@ -423,8 +482,17 @@ def test_system():
         assert 'target_domain_acc' in metrics, "Should track target domain accuracy"
         assert 'domain_confusion' in metrics, "Should track domain confusion"
         
+        # Verify weighted loss initialization
+        assert hasattr(adv_trainer, 'weighted_loss'), "Should have weighted loss"
+        
+        # Verify domain weight adaptation
+        assert hasattr(adv_trainer, 'source_domain_weight'), "Should track source domain weight"
+        assert hasattr(adv_trainer, 'target_domain_weight'), "Should track target domain weight"
+        
         print("✓ Adversarial trainer tested successfully")
         print("Domain adaptation metrics:", metrics)
+        print(f"Domain weights - Source: {adv_trainer.source_domain_weight:.2f}, "
+              f"Target: {adv_trainer.target_domain_weight:.2f}")
         
     except Exception as e:
         print(f"✗ Adversarial trainer test failed: {str(e)}")
