@@ -77,26 +77,122 @@ def launch_tensorboard(logdir, port=6006):
         return None
 
 class EarlyStopping:
-    def __init__(self, patience=7, min_delta=0, verbose=False):
+    """Enhanced early stopping with multiple metrics and mode support"""
+    def __init__(
+        self, 
+        patience: int = 7,
+        min_delta: float = 0.0,
+        mode: str = 'min',
+        min_epochs: int = 10,
+        metrics_to_track: List[str] = None,
+        weights: Dict[str, float] = None,
+        verbose: bool = False
+    ):
+        """
+        Initialize early stopping handler.
+        
+        Args:
+            patience: Number of epochs to wait before stopping
+            min_delta: Minimum change in monitored value to qualify as an improvement
+            mode: 'min' or 'max' - whether to look for metric minimization or maximization
+            min_epochs: Minimum number of epochs to train before allowing early stopping
+            metrics_to_track: List of metric names to monitor
+            weights: Dictionary of metric names and their weights for combined score
+            verbose: Whether to print early stopping messages
+        """
         self.patience = patience
         self.min_delta = min_delta
+        self.mode = mode
+        self.min_epochs = min_epochs
+        self.metrics_to_track = metrics_to_track or ['loss']
+        self.weights = weights or {'loss': 1.0}
         self.verbose = verbose
-        self.counter = 0
-        self.best_loss = None
-        self.early_stop = False
         
-    def __call__(self, val_loss):
-        if self.best_loss is None:
-            self.best_loss = val_loss
-        elif val_loss > self.best_loss - self.min_delta:
+        self.counter = 0
+        self.best_score = None
+        self.early_stop = False
+        self.best_metrics = {}
+        self.val_loss_min = float('inf')
+        
+        # Initialize metric history
+        self.metric_history = {metric: [] for metric in self.metrics_to_track}
+        
+    def _calculate_score(self, metrics: Dict[str, float]) -> float:
+        """Calculate weighted combined score from multiple metrics"""
+        score = 0.0
+        for metric, value in metrics.items():
+            if metric in self.weights:
+                score += self.weights[metric] * value
+        return score
+        
+    def _is_better(self, current: float, best: float) -> bool:
+        """Check if current score is better than best score"""
+        if self.mode == 'min':
+            return current < best - self.min_delta
+        return current > best + self.min_delta
+        
+    def __call__(self, epoch: int, metrics: Dict[str, float], logger: TensorboardLogger = None) -> bool:
+        """
+        Check if training should stop.
+        
+        Args:
+            epoch: Current epoch number
+            metrics: Dictionary of current metrics
+            logger: Optional TensorboardLogger instance
+            
+        Returns:
+            bool: True if training should stop
+        """
+        # Update metric history
+        for metric, value in metrics.items():
+            if metric in self.metric_history:
+                self.metric_history[metric].append(value)
+                
+        # Calculate combined score
+        current_score = self._calculate_score(metrics)
+        
+        # Log metrics if logger provided
+        if logger:
+            logger.log_scalar('early_stopping/score', current_score, epoch)
+            logger.log_scalar('early_stopping/counter', self.counter, epoch)
+        
+        # Don't stop before minimum epochs
+        if epoch < self.min_epochs:
+            return False
+            
+        if self.best_score is None:
+            self.best_score = current_score
+            self.best_metrics = metrics.copy()
+        elif self._is_better(current_score, self.best_score):
+            self.best_score = current_score
+            self.best_metrics = metrics.copy()
+            self.counter = 0
+        else:
             self.counter += 1
             if self.verbose:
                 print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            
             if self.counter >= self.patience:
                 self.early_stop = True
-        else:
-            self.best_loss = val_loss
-            self.counter = 0
+                if self.verbose:
+                    print(f'Early stopping triggered after {epoch} epochs')
+                return True
+                
+        return False
+        
+    def get_best_metrics(self) -> Dict[str, float]:
+        """Get the best metrics seen so far"""
+        return self.best_metrics
+        
+    def get_improvement_rate(self) -> Dict[str, float]:
+        """Calculate improvement rate for each metric"""
+        rates = {}
+        for metric, history in self.metric_history.items():
+            if len(history) > 1:
+                total_change = history[-1] - history[0]
+                num_epochs = len(history)
+                rates[metric] = total_change / num_epochs
+        return rates
 
 class SegmentationTrainer:
     def __init__(self, model, device):
@@ -363,8 +459,17 @@ class SegmentationTrainer:
     def train(self, train_dataloader, valid_dataloader, epochs, learning_rate, patience=7):
         """Train the model."""
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        best_valid_loss = float('inf')
-        patience_counter = 0
+        
+        # Initialize early stopping with multiple metrics
+        early_stopping = EarlyStopping(
+            patience=patience,
+            mode='max',  # We want to maximize validation metrics
+            min_epochs=10,
+            metrics_to_track=['loss', 'iou', 'accuracy'],
+            weights={'loss': -1.0, 'iou': 1.0, 'accuracy': 0.5},  # Negative weight for loss since we want to minimize it
+            verbose=True
+        )
+        
         self.current_epoch = 0
         
         for epoch in range(1, epochs + 1):
@@ -377,26 +482,22 @@ class SegmentationTrainer:
             print(f'Valid Loss: {valid_metrics["loss"]:.4f}')
             print(f'Valid Metrics: {valid_metrics}')
             
-            # Early stopping
-            if valid_metrics['loss'] < best_valid_loss:
-                best_valid_loss = valid_metrics['loss']
-                patience_counter = 0
+            # Check early stopping
+            if early_stopping(epoch, valid_metrics, self.logger):
+                print(f"Early stopping triggered. Best metrics: {early_stopping.get_best_metrics()}")
+                break
                 
-                # Save best model
+            # Save best model based on early stopping's best metrics
+            if valid_metrics == early_stopping.get_best_metrics():
                 model_path = Path(Config.CHECKPOINTS_DIR) / 'best_model.pth'
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': best_valid_loss,
-                    'metrics': valid_metrics
+                    'metrics': valid_metrics,
+                    'improvement_rates': early_stopping.get_improvement_rate()
                 }, model_path)
-            else:
-                patience_counter += 1
-                print(f'EarlyStopping counter: {patience_counter} out of {patience}')
-                if patience_counter >= patience:
-                    print(f'Early stopping after {epoch} epochs')
-                    break
+                print("Saved new best model!")
                     
         # Close tensorboard logger
         self.logger.close()
