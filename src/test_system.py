@@ -445,27 +445,47 @@ def test_system():
         
         # Test checkpoint saving
         test_metrics = {
-            'iou': '0.6',  # High enough to trigger transition
-            'accuracy': '0.85',
-            'domain_confusion': '0.3'
+            'iou': 0.6,
+            'accuracy': 0.85,
+            'domain_confusion': 0.3
         }
         
+        # Save checkpoint and verify files
         phase_manager.save_checkpoint(
             trainer=adv_trainer,
             metrics=test_metrics,
-            phase=TrainingPhase.SEGMENTATION
+            phase=TrainingPhase.SEGMENTATION,
+            is_best=True
         )
+        
+        # Verify checkpoint files exist
+        phase_dir = next(iter(phase_manager.phase_dirs.values()))
+        assert (phase_dir / 'best_model.pth').exists(), "Best model checkpoint not saved"
+        
+        # Verify metadata file exists and contains correct information
+        assert phase_manager.metadata_path.exists(), "Metadata file not created"
+        metadata = phase_manager._load_metadata()
+        assert metadata['current_phase'] == TrainingPhase.SEGMENTATION.name
+        assert 'best_metrics' in metadata
         
         # Test transition logic
         can_transition = phase_manager.can_transition(test_metrics)
         assert can_transition, "Should be ready to transition with good metrics"
         
+        # Test phase transition
         new_phase = phase_manager.transition_to_next_phase()
         assert new_phase == TrainingPhase.ADVERSARIAL
         
+        # Verify metadata updated after transition
+        metadata = phase_manager._load_metadata()
+        assert TrainingPhase.SEGMENTATION.name in metadata['phases_completed']
+        assert len(metadata['phase_transitions']) > 0
+        
         # Test checkpoint loading
-        success = phase_manager.load_checkpoint(TrainingPhase.SEGMENTATION)
-        assert success, "Should successfully load saved checkpoint"
+        checkpoint = phase_manager.load_checkpoint(TrainingPhase.SEGMENTATION, load_best=True)
+        assert checkpoint is not None, "Failed to load checkpoint"
+        assert 'model_state_dict' in checkpoint
+        assert 'metrics' in checkpoint
         
         print("✓ Phase manager tested successfully")
         print(f"Current phase: {phase_manager.get_current_phase().name}")
