@@ -13,7 +13,7 @@ class AdversarialLoss:
             lambda_adv (float): Weight for adversarial loss (default: 0.001)
         """
         self.lambda_adv = lambda_adv
-        self.bce_loss = nn.BCELoss()
+        self.bce_loss = nn.BCEWithLogitsLoss()
         
     def discriminator_loss(self, source_pred, target_pred):
         """
@@ -38,7 +38,7 @@ class AdversarialLoss:
     def generator_loss(self, target_pred):
         """
         Calculate generator (segmentation model) adversarial loss.
-        The generator tries to fool the discriminator by making target predictions close to 0.
+        The generator tries to fool the discriminator by making target predictions close to 1.
         
         Args:
             target_pred (torch.Tensor): Discriminator predictions for target domain

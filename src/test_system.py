@@ -19,6 +19,8 @@ from src.models.adversarial_trainer import AdversarialTrainer
 from src.models.phase_manager import PhaseManager, TrainingPhase
 from src.data.setup_test_data import setup_test_data
 from src.visualization.tensorboard_logger import TensorboardLogger
+from src.models.unsupervised_trainer import UnsupervisedTrainer
+from src.models.domain_model import DomainAdaptationModel
 
 def test_system():
     print("Starting system test...")
@@ -673,6 +675,73 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Fine-tuning loss integration test failed: {str(e)}")
+        return False
+
+    # 12c. Test unsupervised trainer
+    print("\n12c. Testing unsupervised trainer...")
+    try:
+        # Create discriminator
+        discriminator = DomainDiscriminator().to(Config.DEVICE)
+        
+        # Create domain adaptation model
+        domain_model = DomainAdaptationModel(model, discriminator)
+        
+        # Create trainer
+        unsup_trainer = UnsupervisedTrainer(
+            model=domain_model,
+            device=Config.DEVICE,
+            consistency_weight=1.0,
+            domain_weight=0.1,
+            supervised_weight=0.1,
+            rampup_length=40,
+            log_interval=10
+        )
+        
+        # Create target dataset
+        target_dataset = TargetDataset(
+            images_dir=os.path.join("data/target/holyrood"),
+            transform=get_strong_augmentation()
+        )
+        
+        # Create dataloaders with smaller batch size for testing
+        test_batch_size = 2  # Reduced from Config.BATCH_SIZE
+        
+        target_loader = DataLoader(
+            target_dataset,
+            batch_size=test_batch_size,
+            shuffle=True,
+            num_workers=0,  # Reduced workers to minimize memory usage
+            pin_memory=False  # Disable pin_memory to reduce memory usage
+        )
+        
+        val_loader_small = DataLoader(
+            val_dataset,
+            batch_size=test_batch_size,
+            shuffle=False,
+            num_workers=0,
+            pin_memory=False
+        )
+        
+        # Run a mini training session
+        unsup_trainer.train(
+            target_dataloader=target_loader,
+            valid_dataloader=val_loader_small,
+            epochs=2,
+            learning_rate=Config.LEARNING_RATE,
+            supervised_dataloader=None,  # Test without supervised data first
+            patience=Config.PATIENCE
+        )
+        
+        # Verify metrics tracking
+        assert hasattr(unsup_trainer, 'domain_metrics'), "Trainer should have domain metrics"
+        metrics = unsup_trainer.domain_metrics.get_metrics()
+        assert 'domain_confusion' in metrics, "Should track domain confusion"
+        
+        print("✓ Unsupervised trainer tested successfully")
+        print("Domain adaptation metrics:", metrics)
+        
+    except Exception as e:
+        print(f"✗ Unsupervised trainer test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")

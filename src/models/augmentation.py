@@ -48,9 +48,9 @@ def get_strong_augmentation():
             A.GaussNoise(var_limit=(20.0, 60.0)),
         ], p=0.4),
         A.OneOf([
-            A.MotionBlur(blur_limit=7, p=0.4),
-            A.MedianBlur(blur_limit=7, p=0.3),
-            A.Blur(blur_limit=7, p=0.3),
+            A.MotionBlur(blur_limit=5, p=0.4),
+            A.MedianBlur(blur_limit=5, p=0.3),
+            A.Blur(blur_limit=5, p=0.3),
         ], p=0.4),
         A.ShiftScaleRotate(
             shift_limit=0.1,
@@ -64,7 +64,6 @@ def get_strong_augmentation():
             A.ElasticTransform(
                 alpha=120,
                 sigma=120 * 0.05,
-                alpha_affine=None,
                 p=0.4
             ),
         ], p=0.4),
