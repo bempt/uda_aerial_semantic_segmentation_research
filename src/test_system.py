@@ -13,7 +13,7 @@ from src.models.predict import predict_mask
 from src.models.augmentation import get_training_augmentation, get_strong_augmentation
 from src.models.config import Config
 from src.models.discriminator import DomainDiscriminator
-from src.models.losses import AdversarialLoss, ConsistencyLoss, DiceLoss, WeightedSegmentationLoss, calculate_class_weights
+from src.models.losses import AdversarialLoss, ConsistencyLoss, DiceLoss, WeightedSegmentationLoss, calculate_class_weights, FineTuningLoss
 from src.data.prepare_holyrood import prepare_holyrood_dataset
 from src.models.adversarial_trainer import AdversarialTrainer
 from src.models.phase_manager import PhaseManager, TrainingPhase
@@ -614,6 +614,65 @@ def test_system():
         
     except Exception as e:
         print(f"✗ Unsupervised fine-tuning test failed: {str(e)}")
+        return False
+
+    # 12b. Test fine-tuning loss integration
+    print("\n12b. Testing fine-tuning loss integration...")
+    try:
+        # Create fine-tuning loss
+        fine_tuning_loss = FineTuningLoss(
+            consistency_weight=1.0,
+            domain_weight=0.1,
+            supervised_weight=0.1,
+            rampup_length=40
+        )
+        
+        # Test with dummy data
+        batch_size = 4
+        height, width = 256, 256
+        pred1 = torch.rand(batch_size, Config.NUM_CLASSES, height, width)
+        pred2 = torch.rand(batch_size, Config.NUM_CLASSES, height, width)
+        domain_pred = torch.rand(batch_size, 1)
+        
+        # Test loss calculation at different epochs
+        epochs_to_test = [0, 20, 40, 60]
+        for epoch in epochs_to_test:
+            losses = fine_tuning_loss(pred1, pred2, domain_pred, epoch)
+            
+            # Verify loss components
+            assert 'total' in losses, "Missing total loss"
+            assert 'consistency' in losses, "Missing consistency loss"
+            assert 'domain_confusion' in losses, "Missing domain confusion loss"
+            assert 'rampup_weight' in losses, "Missing rampup weight"
+            
+            # Verify loss values
+            assert losses['total'] >= 0, "Total loss should be non-negative"
+            assert 0 <= losses['rampup_weight'] <= 1, "Rampup weight should be between 0 and 1"
+            
+            # Verify rampup behavior
+            if epoch == 0:
+                assert losses['rampup_weight'] == 0, "Rampup should start at 0"
+            elif epoch >= 40:
+                assert losses['rampup_weight'] == 1, "Rampup should reach 1"
+                
+        # Test with supervised data
+        supervised_pred = torch.rand(batch_size, Config.NUM_CLASSES, height, width)
+        # Create target as class indices (B, H, W)
+        supervised_target = torch.randint(0, Config.NUM_CLASSES, (batch_size, height, width))
+        
+        losses_with_supervised = fine_tuning_loss(
+            pred1, pred2, domain_pred, 40,
+            supervised_pred=supervised_pred,
+            supervised_target=supervised_target
+        )
+        
+        assert losses_with_supervised['supervised'] > 0, "Supervised loss should be positive when provided"
+        
+        print("✓ Fine-tuning loss integration tested successfully")
+        print("Loss components:", {k: v.item() for k, v in losses.items()})
+        
+    except Exception as e:
+        print(f"✗ Fine-tuning loss integration test failed: {str(e)}")
         return False
 
     print("\nAll system tests completed successfully! ✓")

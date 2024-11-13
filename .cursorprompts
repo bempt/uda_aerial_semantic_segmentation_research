@@ -1,6 +1,7 @@
-PROJECT VERIFICATION:
+PROJECT STATUS VERIFICATION:
 
-Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and tell me which elements have not been completed yet. Do not write any code yet.
+- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and tell me which elements have not been completed yet.
+- Do not write any code yet.
 
 ---
 
@@ -74,11 +75,19 @@ Metrics & Validation Requirements:
 ---
 
 
+CHECK PROJECT STATUS VERIFICATION:
+
+- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and the summary of the project (@summary.txt  and @requirements.txt ).
+- Check them against your previous answer, and tell me which of the elements below have ACTUALLY not been completed yet.
+
+
+
+---
 
 
 STEP VERIFICATION:
 
-- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and tell me which elements have not been completed for this step, only including the critical elements ().
+- Look through the code in this project (@repo_structure.yaml and @flattened_repo.txt) and the summary of the project (@summary.txt   and @requirements.txt  ), and tell me which elements have not been completed for this step, only including the critical elements ().
 
 - Do not write any code yet.
 
@@ -98,7 +107,7 @@ CODE:
 
 - @test_system.py  is currently functioning properly, so you may add functionality but must not remove functionality without asking for the user's explicit permission.
 - Remember to change test_system.py in lockstep with any changes to the system.
-
+- You may add functionality but may not remove any of the functionality listed in @summary.txt without asking for the user's explicit permission.
 
 
 

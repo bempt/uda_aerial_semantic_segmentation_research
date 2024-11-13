@@ -120,7 +120,7 @@ class DiceLoss(nn.Module):
         Calculate Dice Loss
         Args:
             predictions: Model predictions (B, C, H, W)
-            targets: Ground truth in one-hot format (B, C, H, W)
+            targets: Ground truth labels (B, H, W) or one-hot (B, C, H, W)
         Returns:
             Dice loss value
         """
@@ -130,18 +130,25 @@ class DiceLoss(nn.Module):
         # Apply softmax to predictions
         pred_probs = F.softmax(predictions, dim=1)
         
-        # Reshape tensors to (B, C, H*W)
-        pred_flat = pred_probs.reshape(batch_size, num_classes, -1)
-        targets_flat = targets.reshape(batch_size, num_classes, -1)
+        # Convert targets to one-hot if needed
+        if targets.dim() == 3:
+            # Reshape targets to (B, H*W) for one_hot encoding
+            targets_flat = targets.view(batch_size, -1)
+            # Convert to one-hot
+            targets = F.one_hot(targets_flat.long(), num_classes)
+            # Reshape back to (B, C, H, W)
+            h, w = predictions.shape[2:]
+            targets = targets.view(batch_size, h, w, num_classes)
+            targets = targets.permute(0, 3, 1, 2).float()
         
-        # Calculate intersection and union per class and batch
-        intersection = (pred_flat * targets_flat).sum(2)  # Sum over H*W
-        union = pred_flat.sum(2) + targets_flat.sum(2)   # Sum over H*W
+        # Calculate intersection and union
+        intersection = (pred_probs * targets).sum(dim=(2, 3))
+        union = pred_probs.sum(dim=(2, 3)) + targets.sum(dim=(2, 3))
         
-        # Calculate Dice coefficient per class
+        # Calculate Dice coefficient
         dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
         
-        # Average over classes and batch
+        # Return mean loss
         return 1.0 - dice.mean()
 
 class WeightedSegmentationLoss(nn.Module):
@@ -245,3 +252,91 @@ def calculate_class_weights(
     weights = weights / weights.sum() * num_classes
     
     return weights
+
+class FineTuningLoss(nn.Module):
+    """
+    Combined loss for Phase 3 unsupervised fine-tuning.
+    Combines consistency loss, domain confusion loss, and optional supervised loss.
+    """
+    def __init__(
+        self,
+        consistency_weight: float = 1.0,
+        domain_weight: float = 0.1,
+        supervised_weight: float = 0.1,
+        rampup_length: int = 40,
+        temperature: float = 0.5
+    ):
+        super().__init__()
+        self.consistency_loss = ConsistencyLoss(temperature=temperature)
+        self.domain_loss = AdversarialLoss(lambda_adv=domain_weight)
+        self.supervised_loss = DiceLoss()
+        
+        self.consistency_weight = consistency_weight
+        self.domain_weight = domain_weight
+        self.supervised_weight = supervised_weight
+        self.rampup_length = rampup_length
+        
+    def rampup(self, epoch: int) -> float:
+        """Calculate rampup weight for loss components"""
+        if epoch >= self.rampup_length:
+            return 1.0
+        else:
+            # Smooth rampup from 0 to 1
+            return float(epoch) / self.rampup_length
+            
+    def forward(
+        self,
+        pred1: torch.Tensor,
+        pred2: torch.Tensor,
+        domain_pred: torch.Tensor,
+        epoch: int,
+        supervised_pred: Optional[torch.Tensor] = None,
+        supervised_target: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Calculate combined fine-tuning loss.
+        
+        Args:
+            pred1: First prediction from augmented image (B, C, H, W)
+            pred2: Second prediction from differently augmented image (B, C, H, W)
+            domain_pred: Domain classifier prediction (B, 1)
+            epoch: Current epoch for loss scheduling
+            supervised_pred: Optional supervised prediction (B, C, H, W)
+            supervised_target: Optional ground truth (B, H, W)
+            
+        Returns:
+            Dictionary containing total loss and individual components
+        """
+        # Calculate rampup weight
+        rampup_weight = self.rampup(epoch)
+        
+        # Consistency loss between predictions
+        consistency = self.consistency_loss(pred1, pred2)
+        weighted_consistency = consistency * self.consistency_weight * rampup_weight
+        
+        # Domain confusion loss
+        domain_confusion = self.domain_loss.generator_loss(domain_pred)
+        weighted_domain = domain_confusion * self.domain_weight * rampup_weight
+        
+        # Initialize total loss
+        total_loss = weighted_consistency + weighted_domain
+        
+        # Initialize supervised loss component
+        supervised = torch.tensor(0.0, device=pred1.device)
+        
+        # Add supervised loss if available
+        if supervised_pred is not None and supervised_target is not None:
+            # Ensure supervised_target is long type for cross entropy
+            if supervised_target.dtype != torch.long:
+                supervised_target = supervised_target.long()
+            supervised = self.supervised_loss(supervised_pred, supervised_target)
+            weighted_supervised = supervised * self.supervised_weight
+            total_loss = total_loss + weighted_supervised
+        
+        return {
+            'total': total_loss,
+            'consistency': consistency.detach(),
+            'domain_confusion': domain_confusion.detach(),
+            'supervised': supervised.detach(),
+            'rampup_weight': torch.tensor(rampup_weight)
+        }
