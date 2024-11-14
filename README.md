@@ -16,6 +16,36 @@ chmod +x fr.sh
 ./fr.sh --ffc  # Generate and flatten
 ```
 
+## Testing
+
+Run all test suites:
+```bash
+python -m src.test_system
+```
+
+Run individual test suites:
+```bash
+python -m src.test_system data_loading
+python -m src.test_system model_creation
+python -m src.test_system loss_functions
+python -m src.test_system logging
+python -m src.test_system training
+python -m src.test_system model_io
+python -m src.test_system prediction
+python -m src.test_system domain_adaptation
+python -m src.test_system target_dataset
+python -m src.test_system holyrood
+python -m src.test_system adversarial_training
+python -m src.test_system phase_management
+python -m src.test_system fine_tuning
+python -m src.test_system unsupervised_training
+```
+
+Run multiple specific test suites:
+```bash
+python -m src.test_system data_loading model_creation training
+```
+
 # Project Files
 
 ## File Listing
